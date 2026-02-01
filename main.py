@@ -12,6 +12,9 @@ import asyncio
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# 定义一个全局集合，用来存放后台任务的引用，防止被 GC
+background_tasks = set()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
@@ -21,8 +24,11 @@ async def lifespan(app: FastAPI):
     # Setup and connect MCP clients
     await setup_mcp_clients()
     # connect_clients needs to run after startup potentially or concurrency
-    asyncio.create_task(connect_clients())
-    
+    task = asyncio.create_task(connect_clients())
+    background_tasks.add(task)
+    # 当任务完成时，自动从集合中移除，避免内存泄漏
+    task.add_done_callback(background_tasks.discard)
+
     yield
     # Shutdown logic
     logger.info("Agent shutting down...")

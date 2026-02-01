@@ -33,7 +33,10 @@ class NacosManager:
 
     def register_service(self):
         try:
-            self.client.add_naming_instance(self.service_name, self.ip, self.port)
+            # 🔥【关键修复】必须手动指定这两个参数，否则 0.1.15 配合 Nacos 2.x 必死
+            self.client.add_naming_instance(self.service_name, self.ip, self.port,cluster_name="DEFAULT",
+            heartbeat_interval=5, # <--- 加在这里！强制定义心跳间隔
+            ephemeral=True)
             logger.info(f"Registered service {self.service_name} at {self.ip}:{self.port}")
         except Exception as e:
             logger.error(f"Failed to register service: {e}")
