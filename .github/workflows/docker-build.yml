@@ -1,0 +1,91 @@
+name: Build Python Agent DockerImage
+
+on:
+  push:
+    branches:
+      - master  # 主分支提交时触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            tianyaqpzm/python-agent
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,format=short
+
+      - name: Build and push Docker image
+        id: docker_build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Image digest
+        run: echo ${{ steps.docker_build.outputs.digest }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.VPS_USERNAME }} 
+          password: ${{ secrets.VPS_PASSWORD }}
+          port: ${{ secrets.PORT || 22 }}
+          script: |
+            # 停止并删除旧容器
+            docker stop python-agent || true
+            docker rm python-agent || true
+            
+            # 拉取最新镜像
+            docker pull tianyaqpzm/python-agent:master
+            
+            # 启动新容器
+            docker run -d \
+              --name python-agent \
+              --restart unless-stopped \
+              -p 8181:8181 \
+              -e TZ=Asia/Shanghai \
+              -e APP_ENV=production \
+              -e NACOS_SERVER_ADDR=${{ secrets.NACOS_SERVER_ADDR }} \
+              -e NACOS_USERNAME=${{ secrets.NACOS_USERNAME }} \
+              -e NACOS_PASSWORD=${{ secrets.NACOS_PASSWORD }} \
+              -e PG_HOST=${{ secrets.PG_HOST }} \
+              -e PG_PORT=${{ secrets.PG_PORT }} \
+              -e PG_USER=${{ secrets.PG_USER }} \
+              -e PG_PASSWORD=${{ secrets.PG_PASSWORD }} \
+              -e PG_DB=${{ secrets.PG_DB }} \
+              tianyaqpzm/python-agent:master
+            
+            # 清理无用镜像
+            docker image prune -f

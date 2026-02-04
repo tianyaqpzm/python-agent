@@ -5,4 +5,9 @@ langgraph
 nacos-sdk-python
 httpx
 sseclient-py
-"mcp[sse]"
+mcp[sse]
+psycopg[binary]
+sqlalchemy
+langgraph-checkpoint-postgres
+psycopg-pool
+python-dotenv
