@@ -1,3 +1,14 @@
+---
+title: Python-Agent
+emoji: 🤖
+colorFrom: blue
+colorTo: green
+sdk: gradio
+app_file: main.py  # <--- 添加这一行，指定启动文件
+pinned: false
+---
+
+
 # Python Agent
 
 A modular Python-based AI agent service built with FastAPI, integrating **Nacos** for service discovery and **Model Context Protocol (MCP)** for extensible tool usage. This agent uses **LangGraph** to orchestrate agentic workflows.
@@ -48,10 +59,10 @@ The application is configured via environment variables. You can create a `.env`
 | `APP_ENV` | `development` | Application environment (`development` or `production`). |
 | `HOST` | `0.0.0.0` | Host to bind the server to. |
 | `PORT` | `8181` | Port to listen on. |
-| `NACOS_SERVER_ADDR` | `pei.12277.xyz:18848` | Address of the Nacos server. |
+| `NACOS_SERVER_ADDR` | `` | Address of the Nacos server. |
 | `NACOS_NAMESPACE` | `public` | Nacos namespace ID. |
-| `NACOS_USERNAME` | `nacos` | Nacos username. |
-| `NACOS_PASSWORD` | `nacos` | Nacos password. |
+| `NACOS_USERNAME` | `` | Nacos username. |
+| `NACOS_PASSWORD` | `` | Nacos password. |
 | `SERVICE_NAME` | `python-agent` | Name of this service in Nacos. |
 | `MCP_BRAVE_PATH` | (Auto-detected) | Optional override for `npx` path. |
 | `NACOS_GATEWAY_SERVICE_NAME` | `gateway` | Name of the Java/Gateway service to discover. |
