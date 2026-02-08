@@ -11,3 +11,4 @@ sqlalchemy
 langgraph-checkpoint-postgres
 psycopg-pool
 python-dotenv
+gradio

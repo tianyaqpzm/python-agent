@@ -4,7 +4,7 @@ emoji: 🤖
 colorFrom: blue
 colorTo: green
 sdk: gradio
-app_file: main.py  # <--- 添加这一行，指定启动文件
+app_file: app.py  # <--- 添加这一行，指定启动文件
 pinned: false
 ---
 
