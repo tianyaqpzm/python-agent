@@ -6,6 +6,7 @@ colorTo: green
 sdk: gradio
 app_file: app.py  # <--- 添加这一行，指定启动文件
 pinned: false
+paused: true
 ---
 
 
