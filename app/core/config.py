@@ -34,6 +34,14 @@ class Config:
         f"postgresql+psycopg://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DB}"
     )
 
+    # LLM Configuration
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # gemini, openai
+    # Default Base URL for Gemini via Gateway (assuming Gateway is at localhost:8281)
+    # The Gateway route is /gemini/** -> https://generativelanguage.googleapis.com
+    # So we point the client to http://localhost:8281/gemini
+    LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:8281/gemini")
+    LLM_MODEL = os.getenv("LLM_MODEL", "gemini-1.5-flash")
+
 
 class DevelopmentConfig(Config):
     """Development configuration."""

@@ -100,6 +100,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ MCP Setup failed: {e}")
 
+    # 6. 🔥 Start Dynamic Config Watcher
+    from app.core.dynamic_config import dynamic_config
+
+    try:
+        # Check initial config and start watching
+        dynamic_config.watch_config()
+    except Exception:
+        logger.warning("⚠️ Failed to start dynamic config watcher")
+
     # 6. 启动后台任务
     task = asyncio.create_task(connect_clients())
     background_tasks.add(task)

@@ -12,3 +12,5 @@ langgraph-checkpoint-postgres
 psycopg-pool
 python-dotenv
 gradio
+langchain-google-genai
+langchain-openai
