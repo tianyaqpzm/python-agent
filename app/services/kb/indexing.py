@@ -21,10 +21,11 @@ class BaseIndexingProcessor(ABC):
         provider = settings.KB_EMBEDDING_PROVIDER
         model = embedding_model if embedding_model else settings.KB_EMBEDDING_MODEL
         
-        self.embeddings = LLMFactory.get_embeddings(
-            provider=provider,
-            model_name=model,
-            base_url=settings.LLM_BASE_URL
+        self.embeddings = LLMFactory.get_embedding_model(
+            provider=settings.KB_EMBEDDING_PROVIDER,
+            model_name=settings.KB_EMBEDDING_MODEL,
+            api_key=settings.KB_API_KEY,
+            base_url=settings.KB_BASE_URL,
         )
 
     async def process(self, chunks: List[Document]) -> int:
@@ -35,7 +36,7 @@ class BaseIndexingProcessor(ABC):
             logger.warning(f"[{self.__class__.__name__}] 接收到空的 chunks 列表，跳过索引建构。")
             return 0
             
-        logger.info(f"[{self.__class__.__name__}] 开始为 {len(chunks)} 个分块建立索引...")
+        logger.info(f"[{self.__class__.__name__}] 3.开始为 {len(chunks)} 个分块建立索引...")
         
         # 1. 前置验证或特征提取 (Hook)
         self._pre_index(chunks)
@@ -43,7 +44,7 @@ class BaseIndexingProcessor(ABC):
         # 2. 执行核心存储
         inserted_count = await self._save_to_store(chunks)
         
-        logger.info(f"[{self.__class__.__name__}] 索引写入完成，成功记录 {inserted_count} 条。")
+        logger.info(f"[{self.__class__.__name__}] 4.索引写入完成，成功记录 {inserted_count} 条。")
         return inserted_count
 
     def _pre_index(self, chunks: List[Document]) -> None:
@@ -71,12 +72,71 @@ class DefaultPGVectorProcessor(BaseIndexingProcessor):
         )
 
     async def _save_to_store(self, chunks: List[Document]) -> int:
+        from app.core.limiter import LimiterRegistry
+        
+        # 0. 防御性过滤：剔除 page_content 为空的分块，避免 Embedding 接口报错 "input is empty"
+        valid_chunks = [c for c in chunks if c.page_content and c.page_content.strip()]
+        if len(valid_chunks) < len(chunks):
+            logger.warning(f"⚠️ 过滤掉 {len(chunks) - len(valid_chunks)} 个内容为空或全为空格的分块")
+        
+        if not valid_chunks:
+            return 0
+
+        batch_size = 50 # 建议每批 50-100 个分块，避免单次请求过大
+        inserted_total = 0
+        
         try:
-            # aadd_documents 底层会自动处理批量插入（Batch Insert）
-            await self.vector_store.aadd_documents(chunks)
-            return len(chunks)
+            target_url = f"{settings.KB_BASE_URL}/embeddings"
+            model_name = getattr(self.embeddings, 'model', settings.KB_EMBEDDING_MODEL)
+            
+            # 架构级公共能力：通过 Registry 获取针对该模型的唯一限流器
+            limiter = await LimiterRegistry.get_limiter(f"embedding:{model_name}", settings.KB_EMBEDDING_RPM)
+            
+            for i in range(0, len(valid_chunks), batch_size):
+                batch = valid_chunks[i : i + batch_size]
+                
+                async with limiter:
+                    texts = [c.page_content for c in batch]
+                    metadatas = [c.metadata for c in batch]
+                    
+                    logger.info(f"🚀 发起向量化请求 [批次 {i//batch_size + 1}]: URL={target_url}, Model={model_name}, BatchSize={len(batch)}")
+                    
+                    # 1. 手动获取向量（绕过 LangChain 内部参数坑）
+                    import httpx
+                    async with httpx.AsyncClient(verify=False) as client:
+                        headers = {
+                            "Authorization": f"Bearer {settings.KB_API_KEY}",
+                            "Content-Type": "application/json"
+                        }
+                        payload = {
+                            "model": model_name,
+                            "input": texts
+                        }
+                        resp = await client.post(f"{settings.KB_BASE_URL}/embeddings", json=payload, headers=headers, timeout=60.0)
+                        if resp.status_code != 200:
+                            raise RuntimeError(f"Embedding API Error {resp.status_code}: {resp.text}")
+                        
+                        embeddings_data = resp.json()["data"]
+                        embeddings = [item["embedding"] for item in embeddings_data]
+                    
+                    # 2. 直接注入向量到数据库
+                    await self.vector_store.aadd_embeddings(
+                        texts=texts,
+                        embeddings=embeddings,
+                        metadatas=metadatas
+                    )
+                    inserted_total += len(batch)
+                
+            return inserted_total
         except Exception as e:
-            logger.error(f"构建或写入 PGVector 向量索引时出现异常: {e}")
+            # 打印更详细的错误上下文
+            logger.error(f"❌ 向量化回写失败！已完成: {inserted_total}/{len(chunks)}")
+            
+            # 打印当前失败批次的请求体内容
+            failed_batch = [c.page_content[:100] for c in chunks[inserted_total:inserted_total+batch_size]]
+            logger.error(f"失败批次预览 (Chunks): {failed_batch}")
+            
+            logger.error(f"异常详情: {e}")
             raise RuntimeError(f"PGVector Write Failed: {e}")
 
 

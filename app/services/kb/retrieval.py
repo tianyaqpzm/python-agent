@@ -18,18 +18,18 @@ class BaseRetrievalProcessor(ABC):
 
     def __init__(self, top_k: int):
         self.top_k = top_k
-        self.embeddings = LLMFactory.get_embeddings(
+        self.embeddings = LLMFactory.get_embedding_model(
             provider=settings.KB_EMBEDDING_PROVIDER,
             model_name=settings.KB_EMBEDDING_MODEL,
-            base_url=settings.LLM_BASE_URL,
-            api_key=settings.LLM_API_KEY
+            base_url=settings.KB_BASE_URL,
+            api_key=settings.KB_API_KEY
         )
 
     async def search(self, query: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         模板方法：规定文档搜索逻辑的核心路由。
         """
-        logger.info(f"[{self.__class__.__name__}] 执行查询检索, Keyword: [{query}], Filters: {filters}")
+        logger.info(f"[{self.__class__.__name__}] 5.执行查询检索, Keyword: [{query}], Filters: {filters}")
         
         # 1. 执行向量预搜索 / 近似召回 (Vector Retrieval)
         vector_candidates = await self._vector_search(query, filters)
@@ -117,8 +117,26 @@ class HowToCookRetrievalProcessor(BaseRetrievalProcessor):
         # 为 RRF 需要更深度的蓄水池 (召回数量是最终 top_k 的 3-5 倍，以便做 BM25 再次排序)
         pool_size = self.top_k * 5
         try:
-            results = await self.vector_store.asimilarity_search_with_score(
-                query=query,
+            # 1. 手动获取 Query 向量（绕过 LangChain 内部参数坑）
+            import httpx
+            async with httpx.AsyncClient(verify=False) as client:
+                headers = {
+                    "Authorization": f"Bearer {settings.KB_API_KEY}",
+                    "Content-Type": "application/json"
+                }
+                payload = {
+                    "model": settings.KB_EMBEDDING_MODEL,
+                    "input": [query] # 注意：接口期望 list
+                }
+                resp = await client.post(f"{settings.KB_BASE_URL}/embeddings", json=payload, headers=headers, timeout=30.0)
+                if resp.status_code != 200:
+                    raise RuntimeError(f"Retrieval Embedding Error {resp.status_code}: {resp.text}")
+                
+                query_vector = resp.json()["data"][0]["embedding"]
+
+            # 2. 使用向量直接搜索
+            results = await self.vector_store.asimilarity_search_with_score_by_vector(
+                embedding=query_vector,
                 k=pool_size,
                 filter=filters
             )
