@@ -1,6 +1,6 @@
 import logging
+from typing import List, Optional
 from abc import ABC, abstractmethod
-from typing import List
 from langchain_core.documents import Document
 from langchain_postgres import PGVector
 from app.core.config import settings
@@ -16,11 +16,14 @@ class BaseIndexingProcessor(ABC):
     规范了向量及元数据入库的核心流程。
     """
 
-    def __init__(self):
+    def __init__(self, embedding_model: Optional[str] = None):
         # 统一获取配置好的 Embeddings 实例
+        provider = settings.KB_EMBEDDING_PROVIDER
+        model = embedding_model if embedding_model else settings.KB_EMBEDDING_MODEL
+        
         self.embeddings = LLMFactory.get_embeddings(
-            provider=settings.KB_EMBEDDING_PROVIDER,
-            model_name=settings.KB_EMBEDDING_MODEL,
+            provider=provider,
+            model_name=model,
             base_url=settings.LLM_BASE_URL
         )
 
@@ -57,8 +60,8 @@ class DefaultPGVectorProcessor(BaseIndexingProcessor):
     """
     标准的 PostgreSQL pgvector 本地/远程索引存储引擎处理器。
     """
-    def __init__(self):
-        super().__init__()
+    def __init__(self, embedding_model: Optional[str] = None):
+        super().__init__(embedding_model)
         self.collection_name = settings.KB_VECTOR_TABLE
         self.vector_store = PGVector(
             embeddings=self.embeddings,
@@ -85,8 +88,8 @@ class IndexingService:
     def __init__(self):
         pass
 
-    async def build_and_save_index(self, chunks: List[Document], category: str = "default") -> int:
+    async def build_and_save_index(self, chunks: List[Document], category: str = "default", embedding_model: Optional[str] = None, vector_store: Optional[str] = None) -> int:
         """根据策略路由建立索引"""
         # 可以基于 Category 进行定制化的 DB 表分配，此处简化复用统一的 DefaultPGVector
-        processor = DefaultPGVectorProcessor()
+        processor = DefaultPGVectorProcessor(embedding_model=embedding_model)
         return await processor.process(chunks)

@@ -37,9 +37,28 @@ class IngestRequest(BaseModel):
     tenant_id: str = Field(default="default", description="环境/租户隔离.")
     
     # --- 动态传入的 RAG 核心参数 ---
+    # 1. Data Preparation
     chunk_size: Optional[int] = Field(default=None, description="文本分块大小")
     chunk_overlap: Optional[int] = Field(default=None, description="片段重叠字符数")
     separators: Optional[List[str]] = Field(default=None, description="文本切割偏好符号")
+    
+    # 2. Indexing & Retrieval
+    embedding_model: Optional[str] = Field(default=None, description="Embedding 模型")
+    vector_store: Optional[str] = Field(default=None, description="向量数据库类型")
+    top_k: Optional[int] = Field(default=5, description="检索结果数")
+    score_threshold: Optional[float] = Field(default=None, description="评分阈值")
+    enable_hybrid_search: Optional[bool] = Field(default=True, description="是否启用混合检索")
+    alpha_weight: Optional[float] = Field(default=0.5, description="权重比例")
+    
+    # 3. Generation
+    generation_model: Optional[str] = Field(default=None, description="生成模型名称")
+    temperature: Optional[float] = Field(default=0.7, description="采样温度")
+    max_tokens: Optional[int] = Field(default=1000, description="最大生成长度")
+    system_prompt: Optional[str] = Field(default=None, description="系统提示词")
+    
+    # 4. Evaluation
+    enable_evaluation: bool = Field(default=False, description="是否开启自动评估")
+    evaluation_metrics: Optional[List[str]] = Field(default=None, description="评估指标列表")
 
 class RetrievalRequest(BaseModel):
     query: str = Field(..., description="要查询的问题或关键词")
@@ -71,7 +90,10 @@ async def ingest_document(
     Java端仅传递本地共享磁盘可读的绝对路径进来。
     """
     if not os.path.exists(req.file_path):
-        raise HTTPException(status_code=400, detail=f"文件路径未找到或引擎无权访问: {req.file_path}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error_code": "DEP_0100", "error_msg": f"参数异常，文件路径未找到或引擎无权访问: {req.file_path}"}
+        )
     
     try:
         # 1. 解析和分块
@@ -83,25 +105,40 @@ async def ingest_document(
             }
             chunks = prep_svc.load_and_split(req.file_path, category=req.category, tenant_id=req.tenant_id, extra_metadata=extra_configs)
         except RuntimeError as e:
-            raise HTTPException(status_code=500, detail=f"文件拆解错误: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error_code": "DEP_0501", "error_msg": f"文件拆解错误: {e}"}
+            )
             
         # 2. 存入大模型进行 Embed 后，刷入矢量持久库
         try:
-            inserted_count = await idx_svc.build_and_save_index(chunks)
+            inserted_count = await idx_svc.build_and_save_index(
+                chunks, 
+                embedding_model=req.embedding_model,
+                vector_store=req.vector_store
+            )
         except RuntimeError as e:
-            raise HTTPException(status_code=500, detail=f"向量化回写错误: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error_code": "DEP_0502", "error_msg": f"向量化回写错误: {e}"}
+            )
             
+        # 3. 如果开启了评估，记录日志（后续可集成 RAGAS 等库）
+        if req.enable_evaluation:
+            logger.info(f"开启自动评估流程, 指标: {req.evaluation_metrics}")
+
         return {
             "status": "success",
             "message": f"成功解构、分段与向量化文件 [{os.path.basename(req.file_path)}].",
             "metrics": {
                 "chunks_generated": len(chunks),
-                "chunks_inserted": inserted_count
+                "chunks_inserted": inserted_count,
+                "evaluation_triggered": req.enable_evaluation
             }
         }
     except Exception as e:
         logger.error(f"知识库注入未知崩溃: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 @router.post("/retrieve", summary="提问搜索 (向量近似查询) 可单独由Java获取Chunks", response_model=RetrievalResponse)
 async def retrieve_knowledge(

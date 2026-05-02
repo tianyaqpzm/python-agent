@@ -12,7 +12,7 @@ class Config:
     APP_ENV: str = os.getenv("APP_ENV", "development")
 
     # Server
-    HOST: str = os.getenv("HOST", "127.0.0.1")
+    HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT") or 8181)
 
     # Nacos Bootstrap

@@ -2,7 +2,7 @@ import sys
 import asyncio
 import logging
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from dotenv import load_dotenv
 
 # 1. 基础配置：加载环境变量和初始化日志
@@ -38,6 +38,10 @@ app = FastAPI(
 # 注册路由
 app.include_router(chat.router, tags=["chat"])
 app.include_router(kb.router, prefix="/rest/kb/v1", tags=["Knowledge Base"])
+
+from app.core.exception_handler import global_exception_handler
+app.add_exception_handler(Exception, global_exception_handler)
+app.add_exception_handler(HTTPException, global_exception_handler)
 
 @app.middleware("http")
 async def log_requests(request, call_next):

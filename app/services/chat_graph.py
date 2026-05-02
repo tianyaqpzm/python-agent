@@ -11,6 +11,7 @@ from app.core.llm_factory import LLMFactory
 from app.core.dynamic_config import dynamic_config
 from app.services.mcp_client import mcp_clients, get_all_tools
 from app.services.kb.retrieval import RetrievalService
+from app.services.prompt_service import prompt_service
 import logging
 import json
 
@@ -95,13 +96,26 @@ async def agent_node(state: ChatState, config: RunnableConfig):
                 context_docs = await ret_svc.search(query=user_query, category=topic_id, top_k=5)
                 if context_docs:
                     context_str = "\n---\n".join([d.get("content", "") for d in context_docs])
-                    system_prompt = (
-                        "You are a helpful assistant. Use the following context retrieved from the user's KB.\n\n"
-                        f"Context:\n{context_str}"
-                    )
+                    
+                    # 🔥 动态 Prompt 管理：从数据库获取人格模板
+                    prompt_slug = 'chef_persona_rag' if topic_id == 'topic_recipe_001' else 'default_kb_assistant'
+                    prompt_data = await prompt_service.get_active_prompt(prompt_slug)
+                    
+                    if prompt_data:
+                        # 渲染模板变量
+                        system_prompt = prompt_service.render_prompt(
+                            prompt_data['content'], 
+                            {'context': context_str}
+                        )
+                        # TODO: 可以在这里应用 prompt_data['modelConfig'] 中的温度等参数
+                    else:
+                        # Fallback 逻辑
+                        persona_prompt = "You are a helpful assistant."
+                        system_prompt = f"{persona_prompt}\n\nContext:\n{context_str}"
+
                     messages = [SystemMessage(content=system_prompt)] + messages
         except Exception as e:
-            logger.error(f"RAG failed: {e}")
+            logger.error(f"RAG or Dynamic Prompt failed: {e}")
 
     # e. 调用 LLM
     response = await llm.ainvoke(messages)
