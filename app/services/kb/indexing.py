@@ -101,23 +101,14 @@ class DefaultPGVectorProcessor(BaseIndexingProcessor):
                     
                     logger.info(f"🚀 发起向量化请求 [批次 {i//batch_size + 1}]: URL={target_url}, Model={model_name}, BatchSize={len(batch)}")
                     
-                    # 1. 手动获取向量（绕过 LangChain 内部参数坑）
-                    import httpx
-                    async with httpx.AsyncClient(verify=False) as client:
-                        headers = {
-                            "Authorization": f"Bearer {settings.KB_API_KEY}",
-                            "Content-Type": "application/json"
-                        }
-                        payload = {
-                            "model": model_name,
-                            "input": texts
-                        }
-                        resp = await client.post(f"{settings.KB_BASE_URL}/embeddings", json=payload, headers=headers, timeout=60.0)
-                        if resp.status_code != 200:
-                            raise RuntimeError(f"Embedding API Error {resp.status_code}: {resp.text}")
-                        
-                        embeddings_data = resp.json()["data"]
-                        embeddings = [item["embedding"] for item in embeddings_data]
+                    # 1. 使用公共工厂方法获取向量
+                    embeddings = await LLMFactory.aembed_texts_manual(
+                        texts=texts,
+                        model_name=model_name,
+                        api_key=settings.KB_API_KEY,
+                        base_url=settings.KB_BASE_URL
+                    )
+                    logger.info(f"🚀 向量化请求完成 [批次 {i//batch_size + 1}]: 成功获取 {len(embeddings)} 个向量")
                     
                     # 2. 直接注入向量到数据库
                     await self.vector_store.aadd_embeddings(

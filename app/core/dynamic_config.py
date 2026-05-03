@@ -11,6 +11,25 @@ class DynamicConfig:
         # 引导参数（必须通过环境变量获取，用于连接 Nacos）
         self.data_id = f"{settings.SERVICE_NAME}-{settings.APP_ENV}.yaml"
         self.group = settings.NACOS_GROUP
+        # 注意：此处不再主动同步 settings，等待 watch_config 被显式调用后再初始化
+
+    def _sync_from_settings(self):
+        """从 settings 中同步所有大写配置项为实例的小写属性。"""
+        for attr in dir(settings):
+            if not attr.startswith("_") and attr.isupper():
+                val = getattr(settings, attr)
+                if not callable(val):
+                    setattr(self, attr.lower(), val)
+
+    def __getattr__(self, name: str):
+        """兜底逻辑：如果实例属性不存在，尝试从 settings 获取。"""
+        # 统一转换为大写尝试匹配 settings
+        settings_key = name.upper()
+        if hasattr(settings, settings_key):
+            val = getattr(settings, settings_key)
+            logger.info(f"ℹ️ Attribute '{name}' not found in DynamicConfig, falling back to settings.{settings_key}")
+            return val
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
     def watch_config(self):
         """启动配置监听。"""
@@ -19,8 +38,10 @@ class DynamicConfig:
         content = nacos_manager.get_config(self.data_id, self.group)
         if content:
             self._update_config(content)
+            logger.info(f"✅ [Nacos] Config loaded and attributes initialized from {self.data_id}.")
         else:
-            logger.error(f"❗ [Nacos] Failed to load {self.data_id}. Ensure Nacos is reachable.")
+            logger.warning(f"⚠️ [Nacos] Failed to load {self.data_id} or config is empty. Falling back to default settings.")
+            self._sync_from_settings()
 
         nacos_manager.add_config_watcher(self.data_id, self.group, self._update_config)
 
@@ -86,5 +107,10 @@ class DynamicConfig:
         setattr(settings, key, value)
         # 同时更新 dynamic_config 实例本身以保持一致
         setattr(self, key.lower(), value)
+
+        # 如果变更涉及数据库连接，则重置引擎
+        if key.startswith("PG_"):
+            from app.core.database import reset_engine
+            reset_engine()
 
 dynamic_config = DynamicConfig()

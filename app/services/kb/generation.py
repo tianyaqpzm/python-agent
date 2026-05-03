@@ -19,9 +19,10 @@ class BaseGenerationProcessor(ABC):
     封装了解答大语言模型的全生命周期控制流。
     """
     def __init__(self):
+        self.model_name = settings.KB_LLM_MODEL
         self.llm = LLMFactory.get_llm(
             provider=settings.KB_LLM_PROVIDER,
-            model_name=settings.KB_LLM_MODEL,
+            model_name=self.model_name,
             base_url=settings.KB_BASE_URL,
             api_key=settings.KB_API_KEY,
             temperature=settings.KB_LLM_TEMPERATURE
@@ -102,7 +103,7 @@ class DefaultGenerationProcessor(BaseGenerationProcessor):
         )
         chain = {"question": RunnablePassthrough(), "context": lambda _: context_text} | prompt | self.llm | StrOutputParser()
         
-        limiter = await LimiterRegistry.get_limiter("llm:kb:general", settings.LLM_RPM)
+        limiter = await LimiterRegistry.get_limiter(f"chat:{self.model_name}", settings.LLM_RPM)
         async with limiter:
             return await chain.ainvoke(query)
 
@@ -117,7 +118,7 @@ class DefaultGenerationProcessor(BaseGenerationProcessor):
             "参考资料:\n{context}\n\n问题: {question}"
         )
         chain = {"question": RunnablePassthrough(), "context": lambda _: context_text} | prompt | self.llm | StrOutputParser()
-        limiter = await LimiterRegistry.get_limiter("llm:kb:stream", settings.LLM_RPM)
+        limiter = await LimiterRegistry.get_limiter(f"chat:{self.model_name}", settings.LLM_RPM)
         async with limiter:
             async for chunk in chain.astream(query):
                 yield chunk
@@ -138,7 +139,7 @@ class HowToCookGenerationProcessor(BaseGenerationProcessor):
         )
         chain = {"query": RunnablePassthrough()} | prompt | self.llm | StrOutputParser()
         try:
-            limiter = await LimiterRegistry.get_limiter("llm:kb:rewrite", settings.LLM_RPM)
+            limiter = await LimiterRegistry.get_limiter(f"chat:{self.model_name}", settings.LLM_RPM)
             async with limiter:
                 res = await chain.ainvoke(query)
             return res.strip()
@@ -157,7 +158,7 @@ class HowToCookGenerationProcessor(BaseGenerationProcessor):
         )
         chain = {"query": RunnablePassthrough()} | prompt | self.llm | StrOutputParser()
         try:
-            limiter = await LimiterRegistry.get_limiter("llm:kb:route", settings.LLM_RPM)
+            limiter = await LimiterRegistry.get_limiter(f"chat:{self.model_name}", settings.LLM_RPM)
             async with limiter:
                 res = (await chain.ainvoke(query)).strip().lower()
             return res if res in ['list', 'detail', 'general'] else 'general'
@@ -195,7 +196,7 @@ class HowToCookGenerationProcessor(BaseGenerationProcessor):
         context_text = self._build_context(docs)
         prompt = self._get_prompt_by_intent(intent, context_text, query)
         chain = {"question": RunnablePassthrough(), "context": lambda _: context_text} | prompt | self.llm | StrOutputParser()
-        limiter = await LimiterRegistry.get_limiter("llm:kb:general", settings.LLM_RPM)
+        limiter = await LimiterRegistry.get_limiter(f"chat:{self.model_name}", settings.LLM_RPM)
         async with limiter:
             return await chain.ainvoke(query)
 
@@ -207,7 +208,7 @@ class HowToCookGenerationProcessor(BaseGenerationProcessor):
         prompt = self._get_prompt_by_intent(intent, context_text, query)
         chain = {"question": RunnablePassthrough(), "context": lambda _: context_text} | prompt | self.llm | StrOutputParser()
         
-        limiter = await LimiterRegistry.get_limiter("llm:kb:cook:stream", settings.LLM_RPM)
+        limiter = await LimiterRegistry.get_limiter(f"chat:{self.model_name}", settings.LLM_RPM)
         async with limiter:
             async for chunk in chain.astream(query):
                 yield chunk

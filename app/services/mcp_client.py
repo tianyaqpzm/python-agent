@@ -207,11 +207,16 @@ mcp_clients: Dict[str, MCPClient] = {}
 def register_mcp_client(client: MCPClient) -> None:
     mcp_clients[client.name] = client
 
-async def get_all_tools() -> List[Dict[str, Any]]:
+async def get_all_tools(headers: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
     all_tools: List[Dict[str, Any]] = []
     for client in mcp_clients.values():
         try:
-            tools = await client.list_tools()
+            # 根据客户端类型决定是否传递 headers
+            if isinstance(client, SSEMCPClient):
+                tools = await client.list_tools(headers=headers)
+            else:
+                tools = await client.list_tools()
+            
             for t in tools:
                 t['client_name'] = client.name # Tag with client name
             all_tools.extend(tools)

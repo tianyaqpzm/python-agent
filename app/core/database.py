@@ -12,6 +12,13 @@ Base = declarative_base()
 _engine = None
 _AsyncSessionLocal = None
 
+def reset_engine():
+    """当 Nacos 配置变更时，清空单例以触发重新创建"""
+    global _engine, _AsyncSessionLocal
+    _engine = None
+    _AsyncSessionLocal = None
+    logger.info("♻️ Database engine and session factory reset.")
+
 def get_engine():
     global _engine
     if _engine is None:
@@ -41,7 +48,7 @@ def AsyncSessionLocal():
 
 # --- 模型定义保持不变 ---
 class ChatMessageModel(Base):
-    __tablename__ = "chat_messages"
+    __tablename__ = "ms_chat_message"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     session_id = Column(String(255), nullable=False, index=True)

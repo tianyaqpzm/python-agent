@@ -23,7 +23,7 @@ class Config:
     NACOS_PASSWORD: str = os.getenv("NACOS_PASSWORD", "")
     SERVICE_NAME: str = os.getenv("SERVICE_NAME", "ms-py-agent")
     SERVICE_IP: Optional[str] = os.getenv("SERVICE_IP")
-    NACOS_HEARTBEAT_INTERVAL: int = int(os.getenv("NACOS_HEARTBEAT_INTERVAL", 30))
+    NACOS_HEARTBEAT_INTERVAL: int = int(os.getenv("NACOS_HEARTBEAT_INTERVAL", 180))
     NACOS_TIMEOUT: int = int(os.getenv("NACOS_TIMEOUT", 10))
     NACOS_RETRIES: int = int(os.getenv("NACOS_RETRIES", 5))
 
@@ -57,7 +57,7 @@ class Config:
     LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o")
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "dummy")
     LLM_SKIP_SSL_VERIFY: bool = os.getenv("LLM_SKIP_SSL_VERIFY", "true").lower() == "true"
-    LLM_RPM: int = int(os.getenv("LLM_RPM") or 60) # 每分钟最大请求数
+    LLM_RPM: int = int(os.getenv("LLM_RPM") or 2) # 每分钟最大请求数
 
     # KB
     KB_LLM_PROVIDER: str = os.getenv("KB_LLM_PROVIDER", "new-api")

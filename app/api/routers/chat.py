@@ -69,8 +69,6 @@ async def chat_endpoint(
                             logger.info(f"Captured final response: {final_response[:50]}...")
                             yield f"data: {json.dumps({'content': final_response})}\n\n"
 
-                yield "data: [DONE]\n\n"
-
             except Exception as e:
                 logger.error(f"Processing error: {e}", exc_info=True)
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
@@ -84,6 +82,8 @@ async def chat_endpoint(
                         )
                 except Exception as e:
                     logger.error(f"History save failed: {e}")
+
+            yield "data: [DONE]\n\n"
         except Exception as e:
             logger.error(f"Critical stream failure: {e}")
             yield f"data: {json.dumps({'error': 'Critical server error'})}\n\n"

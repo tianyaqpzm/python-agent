@@ -22,7 +22,7 @@ class PromptService:
         instance = random.choice(instances)
         return f"http://{instance['ip']}:{instance['port']}"
 
-    async def get_active_prompt(self, slug: str) -> Optional[Dict[str, Any]]:
+    async def get_active_prompt(self, slug: str, headers: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
         """从 ms-java-biz 获取生效状态的 Prompt 模板与版本配置"""
         base_url = await self._get_java_base_url()
         if not base_url:
@@ -31,7 +31,7 @@ class PromptService:
         url = f"{base_url}/rest/biz/v1/prompts/{slug}"
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(url)
+                response = await client.get(url, headers=headers)
                 if response.status_code == 200:
                     return response.json()
                 else:

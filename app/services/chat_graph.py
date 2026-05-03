@@ -3,7 +3,7 @@ from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langchain_core.runnables.config import RunnableConfig
-from langchain_core.tools import tool
+from langchain_core.tools import tool, StructuredTool
 from langgraph.prebuilt import ToolNode
 
 from app.core.database import ChatMessageModel
@@ -12,6 +12,7 @@ from app.core.dynamic_config import dynamic_config
 from app.services.mcp_client import mcp_clients, get_all_tools
 from app.services.kb.retrieval import RetrievalService
 from app.services.prompt_service import prompt_service
+from app.core.limiter import LimiterRegistry
 import logging
 import json
 
@@ -42,12 +43,11 @@ async def execute_mcp_tool(name: str, arguments: dict, config: RunnableConfig):
 
 def create_mcp_langchain_tool(mcp_tool_def, client):
     """
-    将 MCP 工具定义转换为 LangChain 的 @tool。
+    将 MCP 工具定义转换为 LangChain 的 StructuredTool。
     """
     name = mcp_tool_def["name"]
     description = mcp_tool_def.get("description", f"Call {name}")
     
-    @tool(name=name)
     async def wrapper(arguments: dict, config: RunnableConfig):
         # 这里的 arguments 是 LLM 生成的参数
         auth_header = config.get("configurable", {}).get("auth_header")
@@ -57,8 +57,11 @@ def create_mcp_langchain_tool(mcp_tool_def, client):
         result = await client.call_tool(name, arguments, headers=headers)
         return json.dumps(result, ensure_ascii=False)
     
-    wrapper.description = description
-    return wrapper
+    return StructuredTool.from_function(
+        coroutine=wrapper,
+        name=name,
+        description=description
+    )
 
 # 3. 节点定义
 async def agent_node(state: ChatState, config: RunnableConfig):
@@ -69,7 +72,9 @@ async def agent_node(state: ChatState, config: RunnableConfig):
     api_key = dynamic_config.llm_api_key
 
     # b. 动态获取所有 MCP 工具并绑定
-    raw_tools = await get_all_tools()
+    auth_header = config.get("configurable", {}).get("auth_header")
+    headers = {"Authorization": auth_header} if auth_header else {}
+    raw_tools = await get_all_tools(headers=headers)
     tools = []
     for t in raw_tools:
         client_name = t.get('client_name')
@@ -88,10 +93,26 @@ async def agent_node(state: ChatState, config: RunnableConfig):
 
     # d. RAG 增强 (保持原有逻辑)
     topic_id = config.get("configurable", {}).get("topic_id")
+    auth_header = config.get("configurable", {}).get("auth_header")
+    headers = {"Authorization": auth_header} if auth_header else {}
+    
     if topic_id:
         try:
             ret_svc = RetrievalService()
-            user_query = messages[-1].content if messages else ""
+            user_query = ""
+            if messages:
+                # 显式查找最后一条人类消息，避免被中间的 ToolMessage 或 AIMessage 干扰
+                from langchain_core.messages import HumanMessage
+                human_messages = [m for m in messages if isinstance(m, HumanMessage)]
+                if human_messages:
+                    last_human_msg = human_messages[-1]
+                    if isinstance(last_human_msg.content, str):
+                        user_query = last_human_msg.content
+                    elif isinstance(last_human_msg.content, list):
+                        # 处理多部分内容 (Multimodal)
+                        text_parts = [p.get("text", "") for p in last_human_msg.content if isinstance(p, dict) and p.get("type") == "text"]
+                        user_query = " ".join(text_parts).strip()
+            
             if user_query:
                 context_docs = await ret_svc.search(query=user_query, category=topic_id, top_k=5)
                 if context_docs:
@@ -99,7 +120,7 @@ async def agent_node(state: ChatState, config: RunnableConfig):
                     
                     # 🔥 动态 Prompt 管理：从数据库获取人格模板
                     prompt_slug = 'chef_persona_rag' if topic_id == 'topic_recipe_001' else 'default_kb_assistant'
-                    prompt_data = await prompt_service.get_active_prompt(prompt_slug)
+                    prompt_data = await prompt_service.get_active_prompt(prompt_slug, headers=headers)
                     
                     if prompt_data:
                         # 渲染模板变量
@@ -118,13 +139,16 @@ async def agent_node(state: ChatState, config: RunnableConfig):
             logger.error(f"RAG or Dynamic Prompt failed: {e}")
 
     # e. 调用 LLM
-    response = await llm.ainvoke(messages)
+    limiter = await LimiterRegistry.get_limiter(f"chat:{model}", dynamic_config.llm_rpm or 10)
+    async with limiter:
+        response = await llm.ainvoke(messages)
     return {"messages": [response]}
 
 # 4. 路由逻辑
 def should_continue(state: ChatState):
     last_message = state["messages"][-1]
-    if last_message.tool_calls:
+    # 安全检查属性，避免在非 AIMessage 上报错
+    if getattr(last_message, "tool_calls", None):
         return "tools"
     return END
 
