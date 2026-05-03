@@ -12,7 +12,7 @@ class LLMFactory:
     @staticmethod
     def get_llm(provider: str, model_name: str, api_key: str, base_url: str = None, temperature: float = 0.7):
         if provider == "google":
-            return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key, temperature=temperature)
+            return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key, temperature=temperature, streaming=True)
         elif provider in ["openai", "new-api"]:
             kwargs = {}
             if settings.LLM_SKIP_SSL_VERIFY:
@@ -23,6 +23,7 @@ class LLMFactory:
                 openai_api_key=api_key,
                 base_url=base_url,
                 temperature=temperature,
+                streaming=True,
                 **kwargs
             )
         return None

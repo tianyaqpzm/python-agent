@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 # 1. 定义状态
 class ChatState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
+    sources: List[dict] # 存储 RAG 引用来源
+
 
 # 2. 动态构造 LangChain 工具包装器
 async def execute_mcp_tool(name: str, arguments: dict, config: RunnableConfig):
@@ -142,7 +144,19 @@ async def agent_node(state: ChatState, config: RunnableConfig):
     limiter = await LimiterRegistry.get_limiter(f"chat:{model}", dynamic_config.llm_rpm or 10)
     async with limiter:
         response = await llm.ainvoke(messages)
-    return {"messages": [response]}
+    
+    # 将 sources 传递回 state (如果本次请求包含 RAG)
+    res_state = {"messages": [response]}
+    if 'context_docs' in locals() and context_docs:
+        # 提取关键字段，避免传递过大对象
+        res_state["sources"] = [
+            {"title": d.get("title", "未知文档"), "url": d.get("url", ""), "snippet": d.get("content", "")[:200]}
+            for d in context_docs
+        ]
+    else:
+        res_state["sources"] = [] # 清空之前的来源
+        
+    return res_state
 
 # 4. 路由逻辑
 def should_continue(state: ChatState):
