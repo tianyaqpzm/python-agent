@@ -60,11 +60,11 @@ async def test_default_vector_processor_search():
         processor.embeddings = MagicMock()
         processor.vector_store = mock_store
         
-        docs = await processor.search(query="test query")
+        docs = await processor.search(query="test query", filters={})
         
         assert len(docs) == 2
-        assert docs[0].page_content == "content1"
-        assert docs[0].metadata["score"] == 0.9
+        assert docs[0]["content"] == "content1"
+        assert docs[0]["score"] == 0.9
         mock_embed.assert_called_once()
         mock_store.asimilarity_search_with_score_by_vector.assert_called_once()
 

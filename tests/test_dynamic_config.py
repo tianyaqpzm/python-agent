@@ -7,8 +7,8 @@ def test_dynamic_config_fallback_to_settings():
     """测试 DynamicConfig 的属性兜底逻辑"""
     config = DynamicConfig()
     # 假设 settings 有 LLM_RPM = 60
-    # config 实例初始没有 llm_rpm 属性
-    assert not hasattr(config, "llm_rpm")
+    # 验证 llm_rpm 不在实例的 __dict__ 中（即没有被直接设置）
+    assert "llm_rpm" not in config.__dict__
     
     # 触发 __getattr__
     val = config.llm_rpm
@@ -21,7 +21,8 @@ def test_dynamic_config_nacos_load_success():
     # 模拟 Nacos 返回内容
     mock_yaml = "LLM_RPM: 100\nPG_HOST: 'nacos-host'"
     
-    with patch("app.core.nacos.nacos_manager.get_config", return_value=mock_yaml):
+    with patch("app.core.nacos.nacos_manager.get_config", return_value=mock_yaml), \
+         patch("app.core.nacos.nacos_manager.add_config_watcher"):
         config.watch_config()
         
         # 验证属性已被注入实例
@@ -33,10 +34,12 @@ def test_dynamic_config_nacos_load_failure_fallback():
     """测试 Nacos 加载失败后的全量同步兜底"""
     config = DynamicConfig()
     
-    with patch("app.core.nacos.nacos_manager.get_config", return_value=None):
+    with patch("app.core.nacos.nacos_manager.get_config", return_value=None), \
+         patch("app.core.nacos.nacos_manager.add_config_watcher"):
         config.watch_config()
         
         # 应该执行了 _sync_from_settings
         # 验证常见属性是否存在
         assert hasattr(config, "service_name")
         assert config.service_name == settings.SERVICE_NAME
+
