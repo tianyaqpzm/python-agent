@@ -62,14 +62,25 @@ async def chat_endpoint(
                     {"messages": [input_message]}, config, version="v1"
                 ):
                     kind = event["event"]
-                    if kind == "on_chain_end" and event["name"] == "agent":
+                    # 1. 捕获流式 Token (用于实时渲染)
+                    if kind == "on_chat_model_stream":
+                        content = event["data"]["chunk"].content
+                        if content:
+                            yield f"data: {json.dumps({'content': content})}\n\n"
+                    
+                    # 2. 捕获最终结果 (用于持久化)
+                    elif kind == "on_chain_end" and event["name"] == "agent":
                         output = event["data"]["output"]
                         if output and "messages" in output and output["messages"]:
                             final_response = output["messages"][-1].content
-                            logger.info(f"Captured final response: {final_response[:50]}...")
-                            yield f"data: {json.dumps({'content': final_response})}\n\n"
+                            
+                            # 提取并发送引用来源
+                            sources = output.get("sources", [])
+                            if sources:
+                                yield f"data: {json.dumps({'sources': sources})}\n\n"
+                            
+                            # logger.info(f"Captured final response: {final_response[:50]}...")
 
-                yield "data: [DONE]\n\n"
 
             except Exception as e:
                 logger.error(f"Processing error: {e}", exc_info=True)
@@ -84,6 +95,8 @@ async def chat_endpoint(
                         )
                 except Exception as e:
                     logger.error(f"History save failed: {e}")
+
+            yield "data: [DONE]\n\n"
         except Exception as e:
             logger.error(f"Critical stream failure: {e}")
             yield f"data: {json.dumps({'error': 'Critical server error'})}\n\n"

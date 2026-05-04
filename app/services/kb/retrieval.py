@@ -6,6 +6,7 @@ from langchain_postgres import PGVector
 from app.core.config import settings
 from app.core.llm_factory import LLMFactory
 from app.core.database import get_engine
+from app.core.limiter import LimiterRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -18,18 +19,24 @@ class BaseRetrievalProcessor(ABC):
 
     def __init__(self, top_k: int):
         self.top_k = top_k
-        self.embeddings = LLMFactory.get_embeddings(
+        self.embeddings = LLMFactory.get_embedding_model(
             provider=settings.KB_EMBEDDING_PROVIDER,
             model_name=settings.KB_EMBEDDING_MODEL,
-            base_url=settings.LLM_BASE_URL
+            base_url=settings.KB_BASE_URL,
+            api_key=settings.KB_API_KEY
         )
 
     async def search(self, query: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         模板方法：规定文档搜索逻辑的核心路由。
         """
-        logger.info(f"[{self.__class__.__name__}] 执行查询检索, Keyword: [{query}], Filters: {filters}")
+        logger.info(f"[{self.__class__.__name__}] 5.执行查询检索, Keyword: [{query}], Filters: {filters}")
+        if not query or not str(query).strip():
+            logger.warning(f"[{self.__class__.__name__}] 收到空查询，跳过检索。")
+            return []
         
+        query = str(query).strip()
+            
         # 1. 执行向量预搜索 / 近似召回 (Vector Retrieval)
         vector_candidates = await self._vector_search(query, filters)
         
@@ -79,18 +86,45 @@ class DefaultVectorProcessor(BaseRetrievalProcessor):
 
     async def _vector_search(self, query: str, filters: Dict[str, Any]) -> List[Document]:
         try:
-            # 基础检索需要同时获取 Score（距离越小越好或越大越好）
-            results = await self.vector_store.asimilarity_search_with_score(
-                query=query,
-                k=self.top_k,
-                filter=filters
-            )
-            # asimilarity_search_with_score returns Tuple[Document, float]
-            docs = []
-            for doc, score in results:
-                doc.metadata['score'] = score
-                docs.append(doc)
-            return docs
+            model_name = getattr(self.embeddings, 'model', getattr(self.embeddings, 'model_name', settings.KB_EMBEDDING_MODEL))
+            limiter = await LimiterRegistry.get_limiter(f"embedding:{model_name}", settings.KB_EMBEDDING_RPM)
+            
+            async with limiter:
+                # 1. 显式获取 Embedding 向量 (调用公共工厂方法)
+                safe_query = str(query).strip() or " "
+                logger.info(f"🔍 [DefaultVectorProcessor] 请求 Embedding, Model=[{model_name}], QueryLen={len(safe_query)}")
+                
+                embeddings = await LLMFactory.aembed_texts_manual(
+                    texts=[safe_query],
+                    model_name=model_name,
+                    api_key=settings.KB_API_KEY,
+                    base_url=settings.KB_BASE_URL
+                )
+                query_vector = embeddings[0]
+
+                # 2. 使用解析出的向量进行搜索
+                max_retries = 2
+                for attempt in range(max_retries + 1):
+                    try:
+                        results = await self.vector_store.asimilarity_search_with_score_by_vector(
+                            embedding=query_vector,
+                            k=self.top_k,
+                            filter=filters
+                        )
+                        break
+                    except Exception as e:
+                        if attempt == max_retries:
+                            raise e
+                        logger.warning(f"Vector search attempt {attempt + 1} failed, retrying... Error: {e}")
+                        # 尝试重置引擎
+                        from app.core.database import reset_engine
+                        reset_engine()
+                
+                docs = []
+                for doc, score in results:
+                    doc.metadata['score'] = score
+                    docs.append(doc)
+                return docs
         except Exception as e:
             logger.error(f"PGVector 相似度搜索失败: {e}")
             raise RuntimeError(f"Vector search failed: {e}")
@@ -116,11 +150,43 @@ class HowToCookRetrievalProcessor(BaseRetrievalProcessor):
         # 为 RRF 需要更深度的蓄水池 (召回数量是最终 top_k 的 3-5 倍，以便做 BM25 再次排序)
         pool_size = self.top_k * 5
         try:
-            results = await self.vector_store.asimilarity_search_with_score(
-                query=query,
-                k=pool_size,
-                filter=filters
-            )
+            model_name = getattr(self.embeddings, 'model', getattr(self.embeddings, 'model_name', settings.KB_EMBEDDING_MODEL))
+            limiter = await LimiterRegistry.get_limiter(f"embedding:{model_name}", settings.KB_EMBEDDING_RPM)
+            
+            async with limiter:
+                # 1. 手动获取 Query 向量（绕过 LangChain 内部参数坑）
+                import httpx
+                async with httpx.AsyncClient(verify=False) as client:
+                    headers = {
+                        "Authorization": f"Bearer {settings.KB_API_KEY}",
+                        "Content-Type": "application/json"
+                    }
+                    payload = {
+                        "model": model_name,
+                        "input": [query] # 注意：接口期望 list
+                    }
+                    resp = await client.post(f"{settings.KB_BASE_URL}/embeddings", json=payload, headers=headers, timeout=30.0)
+                    if resp.status_code != 200:
+                        raise RuntimeError(f"Retrieval Embedding Error {resp.status_code}: {resp.text}")
+                    
+                    query_vector = resp.json()["data"][0]["embedding"]
+
+                # 2. 使用向量直接搜索
+                max_retries = 2
+                for attempt in range(max_retries + 1):
+                    try:
+                        results = await self.vector_store.asimilarity_search_with_score_by_vector(
+                            embedding=query_vector,
+                            k=pool_size,
+                            filter=filters
+                        )
+                        break
+                    except Exception as e:
+                        if attempt == max_retries:
+                            raise e
+                        logger.warning(f"Hybrid vector search attempt {attempt + 1} failed, retrying... Error: {e}")
+                        from app.core.database import reset_engine
+                        reset_engine()
             
             docs = []
             for doc, score in results:

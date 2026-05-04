@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from app.core.config import settings
 from app.core.llm_factory import LLMFactory
+from app.core.limiter import LimiterRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -18,16 +19,18 @@ class BaseGenerationProcessor(ABC):
     封装了解答大语言模型的全生命周期控制流。
     """
     def __init__(self):
+        self.model_name = settings.KB_LLM_MODEL
         self.llm = LLMFactory.get_llm(
             provider=settings.KB_LLM_PROVIDER,
-            model_name=settings.KB_LLM_MODEL,
-            base_url=settings.LLM_BASE_URL,
+            model_name=self.model_name,
+            base_url=settings.KB_BASE_URL,
+            api_key=settings.KB_API_KEY,
             temperature=settings.KB_LLM_TEMPERATURE
         )
 
     async def process_answer(self, query: str, context_docs: List[Dict[str, Any]]) -> str:
         """非流式模板主方法"""
-        logger.info(f"[{self.__class__.__name__}] 开始执行脑力生成总线...")
+        logger.info(f"[{self.__class__.__name__}] 6.开始执行脑力生成总线...")
         
         real_query = await self._rewrite_query(query)
         intent = await self._route_intent(real_query)
@@ -37,6 +40,7 @@ class BaseGenerationProcessor(ABC):
 
     async def process_answer_stream(self, query: str, context_docs: List[Dict[str, Any]]) -> AsyncGenerator[str, None]:
         """流式模板主方法"""
+        logger.info(f"[{self.__class__.__name__}] 6.开始执行脑力生成总线 (Stream)...")
         real_query = await self._rewrite_query(query)
         intent = await self._route_intent(real_query)
         
@@ -98,7 +102,10 @@ class DefaultGenerationProcessor(BaseGenerationProcessor):
             "用户问题: {question}"
         )
         chain = {"question": RunnablePassthrough(), "context": lambda _: context_text} | prompt | self.llm | StrOutputParser()
-        return await chain.ainvoke(query)
+        
+        limiter = await LimiterRegistry.get_limiter(f"chat:{self.model_name}", settings.LLM_RPM)
+        async with limiter:
+            return await chain.ainvoke(query)
 
     async def _generate_answer_stream(self, query: str, docs: List[Dict[str, Any]], intent: str) -> AsyncGenerator[str, None]:
         context_text = self._build_context(docs)
@@ -111,8 +118,10 @@ class DefaultGenerationProcessor(BaseGenerationProcessor):
             "参考资料:\n{context}\n\n问题: {question}"
         )
         chain = {"question": RunnablePassthrough(), "context": lambda _: context_text} | prompt | self.llm | StrOutputParser()
-        async for chunk in chain.astream(query):
-            yield chunk
+        limiter = await LimiterRegistry.get_limiter(f"chat:{self.model_name}", settings.LLM_RPM)
+        async with limiter:
+            async for chunk in chain.astream(query):
+                yield chunk
 
 
 class HowToCookGenerationProcessor(BaseGenerationProcessor):
@@ -130,7 +139,9 @@ class HowToCookGenerationProcessor(BaseGenerationProcessor):
         )
         chain = {"query": RunnablePassthrough()} | prompt | self.llm | StrOutputParser()
         try:
-            res = await chain.ainvoke(query)
+            limiter = await LimiterRegistry.get_limiter(f"chat:{self.model_name}", settings.LLM_RPM)
+            async with limiter:
+                res = await chain.ainvoke(query)
             return res.strip()
         except Exception as e:
             logger.warning(f"Failed to rewrite query: {e}")
@@ -147,7 +158,9 @@ class HowToCookGenerationProcessor(BaseGenerationProcessor):
         )
         chain = {"query": RunnablePassthrough()} | prompt | self.llm | StrOutputParser()
         try:
-            res = (await chain.ainvoke(query)).strip().lower()
+            limiter = await LimiterRegistry.get_limiter(f"chat:{self.model_name}", settings.LLM_RPM)
+            async with limiter:
+                res = (await chain.ainvoke(query)).strip().lower()
             return res if res in ['list', 'detail', 'general'] else 'general'
         except Exception as e:
             logger.warning(f"Failed to route intent: {e}")
@@ -183,7 +196,9 @@ class HowToCookGenerationProcessor(BaseGenerationProcessor):
         context_text = self._build_context(docs)
         prompt = self._get_prompt_by_intent(intent, context_text, query)
         chain = {"question": RunnablePassthrough(), "context": lambda _: context_text} | prompt | self.llm | StrOutputParser()
-        return await chain.ainvoke(query)
+        limiter = await LimiterRegistry.get_limiter(f"chat:{self.model_name}", settings.LLM_RPM)
+        async with limiter:
+            return await chain.ainvoke(query)
 
     async def _generate_answer_stream(self, query: str, docs: List[Dict[str, Any]], intent: str) -> AsyncGenerator[str, None]:
         if not docs:
@@ -193,8 +208,10 @@ class HowToCookGenerationProcessor(BaseGenerationProcessor):
         prompt = self._get_prompt_by_intent(intent, context_text, query)
         chain = {"question": RunnablePassthrough(), "context": lambda _: context_text} | prompt | self.llm | StrOutputParser()
         
-        async for chunk in chain.astream(query):
-            yield chunk
+        limiter = await LimiterRegistry.get_limiter(f"chat:{self.model_name}", settings.LLM_RPM)
+        async with limiter:
+            async for chunk in chain.astream(query):
+                yield chunk
 
 
 class GenerationService:

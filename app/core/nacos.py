@@ -114,14 +114,36 @@ class NacosManager:
         except Exception as e:
             logger.error(f"Failed to deregister service: {e}")
 
-    def get_service(self, service_name: str) -> list[dict]:
+    def get_service(self, service_name: str, group_name: Optional[str] = None) -> list[dict]:
+        """
+        获取服务实例列表，仅返回健康且启用的实例。
+        """
         if not self.client:
             self.connect()
 
         try:
-            return self.client.list_naming_instance(service_name)
+            group = group_name or settings.NACOS_GROUP
+            res = self.client.list_naming_instance(service_name, group_name=group)
+            
+            # Nacos SDK 返回的是完整响应字典，我们需要提取 hosts 列表
+            if isinstance(res, dict) and "hosts" in res:
+                instances = res["hosts"]
+                # 过滤出健康且启用的实例
+                return [
+                    i for i in instances 
+                    if i.get("healthy") and i.get("enabled")
+                ]
+            
+            # 如果已经是列表（防御性处理），直接过滤
+            if isinstance(res, list):
+                return [
+                    i for i in res 
+                    if i.get("healthy") and i.get("enabled")
+                ]
+                
+            return []
         except Exception as e:
-            logger.error(f"Failed to get service {service_name}: {e}")
+            logger.error(f"Failed to get service {service_name} from group {group_name}: {e}")
             return []
 
     def get_config(self, data_id: str, group: str) -> Optional[str]:

@@ -39,5 +39,15 @@ trigger: always_on
    - **100% 类型覆盖**: 核心业务逻辑与方法签名必须包含完整的 Type Hints。
    - **异常处理**: 严禁空捕获，必须精准捕获具体异常并记录有效日志。
 
+6. **数据库与通信规范 (DB & Communication)**:
+   - **表名对齐**: 持久化模型表名必须严格遵循 Java 后端迁移脚本（Flyway）定义的命名规范（如 `ms_chat_message`），以确保触发器正常生效。
+   - **Token 透传 (Token Relay)**: 所有发往业务后端（如 `ms-java-biz`）的 MCP 请求必须显式从 `RunnableConfig` 提取 `Authorization` 头并进行透传。
+   - **动态工具发现**: 使用 `StructuredTool.from_function` 替代 `@tool` 装饰器，以支持动态设置工具名称（name）和描述（description）。
+
+7. **流式与状态同步 (Streaming & State Sync)**:
+   - **显式流式**: `LLMFactory` 创建模型时必须显式设置 `streaming=True`，否则 `astream_events` 无法产生 `on_chat_model_stream` 事件。
+   - **事件监听**: `StreamingResponse` 应优先捕获 `on_chat_model_stream` 增量 Token，而非仅等待 `on_chain_end` 全量结果。
+   - **状态截断意识**: 在使用 LangGraph Checkpointer 时，需意识到前端重试可能导致后端状态堆积。设计 API 时应考虑支持显式的历史截断（Rewind）逻辑。
+
 # Key Context (关键背景)
 本服务 (`ms-py-agent`) 是智能编排层。它基于 LangGraph 编排 Agent 工作流对接 LLM 进行推理与规划，并在需要执行业务操作时，通过 MCP 协议动态调度 `ms-java-biz` 提供的工具。它同时在数据库中维护对话上下文 (Memory)。

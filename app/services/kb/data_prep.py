@@ -23,18 +23,44 @@ class BaseDocumentProcessor(ABC):
     def __init__(self, chunk_size: int, chunk_overlap: int, separators: List[str] = None):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-        default_separators = ["\n\n", "\n", "。", "！", "？", ".", "!", "?", " ", ""]
+        
+        # 预处理分隔符：支持转义符识别并强制加入 "" 兜底
+        self.separators = self._prepare_separators(separators)
+        
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap,
-            separators=separators if separators else default_separators
+            separators=self.separators
         )
+
+    def _prepare_separators(self, separators: List[str]) -> List[str]:
+        """
+        对传入的分隔符进行健壮性预处理
+        """
+        default_seps = ["\n\n", "\n", "。", "！", "？", ".", "!", "?", " ", ""]
+        if not separators:
+            return default_seps
+            
+        # 自动识别并转换字面量转义字符串 (如 "\\n" -> "\n")
+        # 解决前端可能由于 JSON 序列化或配置不当传来的字面量斜杠问题
+        mapping = {"\\n": "\n", "\\t": "\t", "\\r": "\r"}
+        processed = []
+        for s in separators:
+            for k, v in mapping.items():
+                s = s.replace(k, v)
+            processed.append(s)
+            
+        # 强制包含 "" 以确保分块逻辑最终能按字符拆分，防止单块超限
+        if "" not in processed:
+            processed.append("")
+        return processed
 
     def process(self, file_path: str, base_metadata: dict) -> List[Document]:
         """
         模板方法：规定文档处理的生命周期
         """
-        logger.info(f"[{self.__class__.__name__}] 开始处理文档: {file_path}")
+        logger.info(f"[{self.__class__.__name__}] 1.开始处理文档: {file_path}")
+        logger.info(f"[{self.__class__.__name__}] 2.分块策略配置 -> Size: {self.chunk_size}, Overlap: {self.chunk_overlap}, Separators: {self.separators}")
         
         # 1. 挂载加载器并读取原始文档
         docs = self._load(file_path)
@@ -52,6 +78,7 @@ class BaseDocumentProcessor(ABC):
             
         logger.info(f"[{self.__class__.__name__}] 完成处理, 共生成 {len(chunks)} 个片段。")
         return chunks
+
 
     @abstractmethod
     def _load(self, file_path: str) -> List[Document]:

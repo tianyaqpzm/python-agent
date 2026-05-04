@@ -12,7 +12,7 @@ class Config:
     APP_ENV: str = os.getenv("APP_ENV", "development")
 
     # Server
-    HOST: str = os.getenv("HOST", "127.0.0.1")
+    HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT") or 8181)
 
     # Nacos Bootstrap
@@ -23,7 +23,7 @@ class Config:
     NACOS_PASSWORD: str = os.getenv("NACOS_PASSWORD", "")
     SERVICE_NAME: str = os.getenv("SERVICE_NAME", "ms-py-agent")
     SERVICE_IP: Optional[str] = os.getenv("SERVICE_IP")
-    NACOS_HEARTBEAT_INTERVAL: int = int(os.getenv("NACOS_HEARTBEAT_INTERVAL", 30))
+    NACOS_HEARTBEAT_INTERVAL: int = int(os.getenv("NACOS_HEARTBEAT_INTERVAL", 180))
     NACOS_TIMEOUT: int = int(os.getenv("NACOS_TIMEOUT", 10))
     NACOS_RETRIES: int = int(os.getenv("NACOS_RETRIES", 5))
 
@@ -57,16 +57,26 @@ class Config:
     LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o")
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "dummy")
     LLM_SKIP_SSL_VERIFY: bool = os.getenv("LLM_SKIP_SSL_VERIFY", "true").lower() == "true"
+    LLM_RPM: int = int(os.getenv("LLM_RPM") or 2) # 每分钟最大请求数
 
     # KB
     KB_LLM_PROVIDER: str = os.getenv("KB_LLM_PROVIDER", "new-api")
     KB_LLM_MODEL: str = os.getenv("KB_LLM_MODEL", "gpt-4o")
     KB_EMBEDDING_PROVIDER: str = os.getenv("KB_EMBEDDING_PROVIDER", "new-api")
-    KB_EMBEDDING_MODEL: str = os.getenv("KB_EMBEDDING_MODEL", "text-embedding-3-small")
+    KB_EMBEDDING_MODEL: str = os.getenv("KB_EMBEDDING_MODEL", "gemini-embedding-2")
+    KB_EMBEDDING_RPM: int = int(os.getenv("KB_EMBEDDING_RPM") or 2) # 每分钟最大请求数
     KB_CHUNK_SIZE: int = int(os.getenv("KB_CHUNK_SIZE") or 500)
     KB_CHUNK_OVERLAP: int = int(os.getenv("KB_CHUNK_OVERLAP") or 50)
     KB_VECTOR_TABLE: str = os.getenv("KB_VECTOR_TABLE", "langchain_pg_embedding")
     KB_LLM_TEMPERATURE: float = float(os.getenv("KB_LLM_TEMPERATURE") or 0.7)
+
+    @property
+    def KB_BASE_URL(self) -> str:
+        return os.getenv("KB_BASE_URL") or self.LLM_BASE_URL
+
+    @property
+    def KB_API_KEY(self) -> str:
+        return os.getenv("KB_API_KEY") or self.LLM_API_KEY
 
 class DevelopmentConfig(Config):
     DEBUG = True
