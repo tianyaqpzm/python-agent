@@ -36,7 +36,7 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: |
-            4Dark/ms-py-agent
+            tianyaqpzm/ms-py-agent
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -79,7 +79,7 @@ jobs:
             
             # 拉取最新镜像
             IMAGE_TAG=${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'master' }}
-            docker pull 4Dark/ms-py-agent:${IMAGE_TAG}
+            docker pull tianyaqpzm/ms-py-agent:${IMAGE_TAG}
             
             # 启动新容器
             docker run -d \
@@ -95,7 +95,7 @@ jobs:
               -e NACOS_PASSWORD=${{ secrets.NACOS_PASSWORD }} \
               -e NACOS_NAMESPACE="${{ vars.NACOS_NAMESPACE || '' }}" \
               -e NACOS_GROUP=${{ vars.NACOS_GROUP || 'DEFAULT_GROUP' }} \
-              4Dark/ms-py-agent:${IMAGE_TAG}
+              tianyaqpzm/ms-py-agent:${IMAGE_TAG}
             
             # 清理无用镜像
             docker image prune -af
