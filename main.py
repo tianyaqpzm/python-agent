@@ -5,15 +5,10 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from dotenv import load_dotenv
 
-# 1. 基础配置：加载环境变量和初始化日志
+# 1. 基础配置：加载环境变量和初始化日志系统
 load_dotenv()
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-# 屏蔽 Nacos SDK 内部极其频繁的轮询日志
-logging.getLogger("nacos").setLevel(logging.INFO)
-logging.getLogger("nacos.client").setLevel(logging.INFO)
+from app.core.logging_config import setup_logging
+setup_logging()
 
 # ✋ 屏蔽 psycopg_pool 的 AsyncConnectionPool 弃用警告 (SQLAlchemy 内部触发)
 import warnings

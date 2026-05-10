@@ -35,3 +35,4 @@ mvnw*
 .env
 # nacos 缓存文件
 nacos-data/
+logs/

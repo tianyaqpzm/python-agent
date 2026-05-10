@@ -1,5 +1,6 @@
 import nacos
 import socket
+import os
 import logging
 import asyncio
 import time
@@ -71,6 +72,7 @@ class NacosManager:
                     namespace=self.namespace,
                     username=self.username,
                     password=self.password,
+                    snapshot_path=os.path.join("/tmp/nacos", self.namespace or "public", "snapshot")
                 )
                 logger.info("✅ Connected to Nacos successfully.")
                 return
@@ -90,12 +92,21 @@ class NacosManager:
             self.connect()
 
         try:
+            # 5. 构造心跳同步元数据
+            beat_interval_ms = settings.NACOS_HEARTBEAT_INTERVAL * 1000
+            metadata = {
+                "preserved.heart.beat.interval": str(beat_interval_ms),
+                "preserved.heart.beat.timeout": str(beat_interval_ms * 3),
+                "preserved.ip.delete.timeout": str(beat_interval_ms * 4)
+            }
+
             self.client.add_naming_instance(
                 self.service_name,
                 self.ip,
                 self.port,
                 cluster_name="DEFAULT",
                 heartbeat_interval=settings.NACOS_HEARTBEAT_INTERVAL,
+                metadata=metadata,
                 ephemeral=True,
             )
             logger.info(
