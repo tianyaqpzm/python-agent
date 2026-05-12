@@ -13,9 +13,14 @@ class TestArchitectureGuard:
         from app.agent.state import AgentState
         hints = get_type_hints(AgentState)
         assert "messages" in hints
-        assert "context" in hints
-        assert "current_step" in hints
-        assert "tool_outputs" in hints
+        assert "intent" in hints
+        assert "topic_id" in hints
+        assert "auth_header" in hints
+        assert "sources" in hints
+        assert "handled_by" in hints
+        assert "artifacts" in hints
+        assert "handoff_context" in hints
+        assert "a2a_task_id" in hints
 
     # PA-02: ChatState TypedDict 字段验证
     def test_chat_state_fields(self):
