@@ -51,3 +51,25 @@ trigger: always_on
 
 # Key Context (关键背景)
 本服务 (`ms-py-agent`) 是智能编排层。它基于 LangGraph 编排 Agent 工作流对接 LLM 进行推理与规划，并在需要执行业务操作时，通过 MCP 协议动态调度 `ms-java-biz` 提供的工具。它同时在数据库中维护对话上下文 (Memory)。
+
+## 8. 路由架构规范 (Router Architecture)
+
+> 2026-05-10 引入：单体图 → 路由架构重构
+
+- **路由图优先**: 新功能必须以**子图（SubGraph）**形式实现，由 Global Router Graph 统一调度，严禁在主图中堆叠业务节点。
+- **目录规范**:
+  - `app/agent/router/` — 路由图和路由节点（意图分类）
+  - `app/agent/subgraphs/` — 各领域子图（RAG、Coding、General...）
+  - `app/agent/state.py` — 全局 State（GlobalState）和子图专用 State（RagSubState 等）
+- **意图分类策略**: `router_node` 优先使用关键词规则（保证测试确定性），未命中时 fallback 到 LLM 分类。
+- **State 隔离**: 每个子图使用专属 TypedDict（如 `RagSubState`），子图不得访问其他子图的专属字段。
+- **工厂函数约定**: `build_xxx_subgraph()` 返回**未编译**的 `StateGraph`，由父图或工厂统一编译后注入 Checkpointer。
+
+## 9. MCPToolRegistry 规范
+
+> 替代手写 JSON-RPC 客户端，使用官方 mcp SDK
+
+- **唯一入口**: 所有 MCP 工具的注册、连接、调用必须通过 `app/core/mcp_registry.py` 中的 `mcp_tool_registry` 单例。
+- **严禁硬编码 `tools=[]`**: 工具列表在 lifespan 启动时由 `mcp_tool_registry.setup()` 动态加载，子图通过 `mcp_tool_registry.get_langchain_tools()` 获取。
+- **生命周期绑定**: `setup()` 在 `lifespan` startup 中调用，`teardown()` 在 shutdown 中调用，确保连接资源正确释放。
+- **兼容层**: `app/services/mcp_client.py` 中的旧 `mcp_clients` 注册表保留以兼容 `chat_graph.py`，新代码禁止直接使用。

@@ -88,6 +88,11 @@ class DynamicConfig:
                 if target_key:
                     self._apply_setting(target_key, value)
             
+            # 只有当所有的配置更新操作完成后，如果涉及到数据库变更，执行一次性的重置操作
+            if any(key.startswith("PG_") for key in flat_config.keys()):
+                from app.core.database import reset_engine
+                reset_engine()
+            
             logger.info("✅ Configuration synchronized and settings updated.")
         except Exception as e:
             logger.error(f"❌ YAML Processing Error: {e}")
@@ -107,10 +112,5 @@ class DynamicConfig:
         setattr(settings, key, value)
         # 同时更新 dynamic_config 实例本身以保持一致
         setattr(self, key.lower(), value)
-
-        # 如果变更涉及数据库连接，则重置引擎
-        if key.startswith("PG_"):
-            from app.core.database import reset_engine
-            reset_engine()
 
 dynamic_config = DynamicConfig()

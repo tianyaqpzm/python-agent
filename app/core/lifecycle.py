@@ -108,7 +108,14 @@ async def lifespan(app: FastAPI):
     # --- Shutdown Logic ---
     logger.info("Agent shutting down...")
 
-    # 7. 资源清理
+    # 7. 关闭 MCP 注册中心（官方 SDK 连接清理）
+    try:
+        from app.core.mcp_registry import mcp_tool_registry
+        await mcp_tool_registry.teardown()
+    except Exception as e:
+        logger.warning(f"⚠️ MCPToolRegistry teardown failed: {e}")
+
+    # 8. 资源清理
     try:
         nacos_manager.deregister_service()
     except Exception as e:

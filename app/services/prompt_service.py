@@ -1,7 +1,8 @@
 import httpx
 import logging
 import random
-from typing import Optional, Dict, Any
+from datetime import datetime
+from typing import Optional, Dict, Any, List
 from app.core.config import settings
 from app.core.nacos import nacos_manager
 
@@ -38,16 +39,60 @@ class PromptService:
                     logger.error(f"Failed to fetch prompt {slug}: {response.status_code} - {response.text}")
                     return None
         except Exception as e:
-            logger.error(f"Error calling prompt service: {e}")
+            logger.exception(f"❌ Error calling prompt service (slug={slug}): {e}")
             return None
 
     def render_prompt(self, template: str, variables: Dict[str, Any]) -> str:
-        """渲染 Prompt 占位符 {{variable}}"""
+        """
+        渲染 Prompt 占位符 {{variable}}。
+        
+        支持系统级自动注入变量：
+        - current_time: 当前时间 (YYYY-MM-DD HH:mm:ss)
+        - today: 今天日期 (YYYY-MM-DD)
+        """
+        # 1. 准备基础变量
+        now = datetime.now()
+        all_vars = {
+            "current_time": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "today": now.strftime("%Y-%m-%d"),
+        }
+        
+        # 2. 合并传入变量（允许覆盖系统变量）
+        if variables:
+            all_vars.update(variables)
+
+        # 3. 执行替换
         rendered = template
-        for key, value in variables.items():
+        for key, value in all_vars.items():
             placeholder = f"{{{{{key}}}}}"
-            rendered = rendered.replace(placeholder, str(value))
+            if placeholder in rendered:
+                rendered = rendered.replace(placeholder, str(value))
+        
         return rendered
+
+    async def get_rendered_prompt(
+        self, 
+        slug: str, 
+        variables: Dict[str, Any], 
+        headers: Optional[Dict[str, str]] = None,
+        fallback: Optional[str] = None
+    ) -> str:
+        """
+        组合操作：获取 Prompt 并渲染。
+        如果获取失败，且提供了 fallback，则渲染 fallback 模板。
+        """
+        prompt_data = await self.get_active_prompt(slug, headers=headers)
+        template = None
+        
+        if prompt_data and prompt_data.get("content"):
+            template = prompt_data["content"]
+        elif fallback:
+            template = fallback
+            
+        if template:
+            return self.render_prompt(template, variables)
+        
+        return ""
 
 # Singleton
 prompt_service = PromptService()

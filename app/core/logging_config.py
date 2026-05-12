@@ -15,9 +15,21 @@ class GzipRotator:
 def namer(name):
     return f"{name}.{datetime.now().strftime('%Y-%m-%d')}"
 
+_initialized = False
+
 def setup_logging(log_dir="logs"):
+    global _initialized
+    if _initialized:
+        return
+ 
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
+ 
+    # 0. 避免重复初始化 (针对 uvicorn reload 场景)
+    root_logger = logging.getLogger()
+    if root_logger.handlers:
+        _initialized = True
+        return
 
     # 1. 基础配置
     log_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -51,7 +63,6 @@ def setup_logging(log_dir="logs"):
     console_handler.setFormatter(log_format)
 
     # 5. 配置 Root Logger (应用日志)
-    root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     root_logger.addHandler(app_handler)
     root_logger.addHandler(console_handler)
@@ -62,7 +73,7 @@ def setup_logging(log_dir="logs"):
     nacos_logger.setLevel(logging.INFO)
     nacos_logger.addHandler(nacos_handler)
     
-    # nacos.client 也需要单独处理，因为它可能不完全遵循父级配置
+    # nacos.client 也需要单独处理
     nacos_client_logger = logging.getLogger("nacos.client")
     nacos_client_logger.propagate = False
     nacos_client_logger.addHandler(nacos_handler)

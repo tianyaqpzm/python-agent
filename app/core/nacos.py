@@ -71,8 +71,7 @@ class NacosManager:
                     self.server_addr,
                     namespace=self.namespace,
                     username=self.username,
-                    password=self.password,
-                    snapshot_path=os.path.join("/tmp/nacos", self.namespace or "public", "snapshot")
+                    password=self.password
                 )
                 logger.info("✅ Connected to Nacos successfully.")
                 return
