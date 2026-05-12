@@ -8,15 +8,23 @@ logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
+import time
+
 # --- 核心变更：改为动态创建 ---
 _engine = None
 _AsyncSessionLocal = None
+_last_reset_time = 0
 
 def reset_engine():
-    """当 Nacos 配置变更时，清空单例以触发重新创建"""
-    global _engine, _AsyncSessionLocal
+    """当 Nacos 配置变更时，清空单例以触发重新创建。增加 1 秒防抖。"""
+    global _engine, _AsyncSessionLocal, _last_reset_time
+    now = time.time()
+    if now - _last_reset_time < 1.0:
+        return
+        
     _engine = None
     _AsyncSessionLocal = None
+    _last_reset_time = now
     logger.info("♻️ Database engine and session factory reset.")
 
 def get_engine():

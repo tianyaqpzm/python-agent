@@ -23,7 +23,8 @@ class Config:
     NACOS_PASSWORD: str = os.getenv("NACOS_PASSWORD", "")
     SERVICE_NAME: str = os.getenv("SERVICE_NAME", "ms-py-agent")
     SERVICE_IP: Optional[str] = os.getenv("SERVICE_IP")
-    NACOS_HEARTBEAT_INTERVAL: int = int(os.getenv("NACOS_HEARTBEAT_INTERVAL", 180))
+    NACOS_HEARTBEAT_INTERVAL: int = int(os.getenv("NACOS_HEARTBEAT_INTERVAL", 5)) # 默认为 5s
+    LOG_DIR: str = os.getenv("LOG_DIR", "logs")
     NACOS_TIMEOUT: int = int(os.getenv("NACOS_TIMEOUT", 10))
     NACOS_RETRIES: int = int(os.getenv("NACOS_RETRIES", 5))
 
