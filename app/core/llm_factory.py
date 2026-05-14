@@ -10,9 +10,9 @@ logger = logging.getLogger(__name__)
 
 class LLMFactory:
     @staticmethod
-    def get_llm(provider: str, model_name: str, api_key: str, base_url: str = None, temperature: float = 0.7):
+    def get_llm(provider: str, model_name: str, api_key: str, base_url: str = None, temperature: float = 0.7, streaming: bool = True):
         if provider == "google":
-            return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key, temperature=temperature, streaming=True)
+            return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key, temperature=temperature, streaming=streaming)
         elif provider in ["openai", "new-api"]:
             kwargs = {}
             if settings.LLM_SKIP_SSL_VERIFY:
@@ -23,7 +23,7 @@ class LLMFactory:
                 openai_api_key=api_key,
                 base_url=base_url,
                 temperature=temperature,
-                streaming=True,
+                streaming=streaming,
                 **kwargs
             )
         return None

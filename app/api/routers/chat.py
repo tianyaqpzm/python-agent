@@ -69,7 +69,10 @@ async def chat_endpoint(
                             yield f"data: {json.dumps({'content': content})}\n\n"
                     
                     # 2. 捕获最终结果 (用于持久化)
-                    elif kind == "on_chain_end" and event["name"] == "agent":
+                    # 由于采用了路由架构，最终输出可能来自不同的子图节点
+                    elif kind == "on_chain_end" and event["name"] in [
+                        "agent", "rag_subgraph", "general_subgraph", "coding_subgraph"
+                    ]:
                         output = event["data"]["output"]
                         if output and "messages" in output and output["messages"]:
                             final_response = output["messages"][-1].content
@@ -79,7 +82,7 @@ async def chat_endpoint(
                             if sources:
                                 yield f"data: {json.dumps({'sources': sources})}\n\n"
                             
-                            # logger.info(f"Captured final response: {final_response[:50]}...")
+                            logger.info(f"Captured final response from {event['name']}: {final_response[:50]}...")
 
 
             except Exception as e:

@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, Any
 
-@dataclass(frozen=True)
+@dataclass(eq=False)
 class ChatMessage:
     """Pure domain model for chat messages."""
     role: str  # 'user' or 'ai'
@@ -16,6 +16,18 @@ class ChatMessage:
             raise ValueError(f"Invalid role: {self.role}")
         if not self.content:
             raise ValueError("Content cannot be empty")
+
+    def __eq__(self, other):
+        if not isinstance(other, ChatMessage):
+            return NotImplemented
+        if self.id is None or other.id is None:
+            return self is other
+        return self.id == other.id
+
+    def __hash__(self):
+        if self.id is None:
+            return hash(id(self))
+        return hash(self.id)
 
 @dataclass(frozen=True)
 class ServiceInstance:

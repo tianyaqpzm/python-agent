@@ -19,10 +19,10 @@ from langgraph.prebuilt import ToolNode
 
 from app.agent.state import RagSubState
 from app.core.dynamic_config import dynamic_config
-from app.core.llm_factory import LLMFactory
 from app.core.limiter import LimiterRegistry
 from app.services.prompt_service import prompt_service
 from app.services.kb.retrieval import RetrievalService
+from app.services.llm_service import llm_service
 
 logger = logging.getLogger(__name__)
 
@@ -37,21 +37,14 @@ async def rag_agent_node(state: RagSubState, config: RunnableConfig) -> Dict[str
     3. 动态加载人格 Prompt
     4. 调用 LLM（绑定工具）
     """
-    # a. 获取最新 LLM 配置
-    provider = dynamic_config.llm_provider
-    base_url = dynamic_config.llm_base_url
-    model = dynamic_config.llm_model
-    api_key = dynamic_config.llm_api_key
-
     # b. 从 MCPToolRegistry 获取工具（动态，无硬编码）
     from app.core.mcp_registry import mcp_tool_registry
     tools = mcp_tool_registry.get_langchain_tools(config=config)
 
-    # c. 初始化 LLM 并绑定工具
-    llm = LLMFactory.get_llm(
-        provider=provider, base_url=base_url, model_name=model, api_key=api_key
-    )
+    # c. 获取 LLM 实例（自动感知配置变更，利用缓存）
+    llm = llm_service.get_default_llm()
     if tools:
+        logger.info("🛠️ Binding %d MCP tools to LLM for RAG: %s", len(tools), [t.name for t in tools])
         llm = llm.bind_tools(tools)
 
     messages = list(state.get("messages", []))
@@ -106,7 +99,8 @@ async def rag_agent_node(state: RagSubState, config: RunnableConfig) -> Dict[str
             logger.error("RAG retrieval failed: %s", exc)
 
     # e. 调用 LLM（带速率限制）
-    limiter = await LimiterRegistry.get_limiter(f"chat:{model}", dynamic_config.llm_rpm or 10)
+    model_name = dynamic_config.llm_model
+    limiter = await LimiterRegistry.get_limiter(f"chat:{model_name}", dynamic_config.llm_rpm or 10)
     async with limiter:
         response = await llm.ainvoke(messages)
 
@@ -121,10 +115,53 @@ async def rag_agent_node(state: RagSubState, config: RunnableConfig) -> Dict[str
     return res_state
 
 
+async def rag_final_answer_node(state: RagSubState, config: RunnableConfig) -> Dict[str, Any]:
+    """
+    当达到迭代上限时的强制回复节点。
+    不再绑定工具，强制 LLM 总结当前信息。
+    """
+    llm = llm_service.get_default_llm()
+    messages = list(state.get("messages", []))
+
+    # 注入强制结束指令
+    messages.append(SystemMessage(content="⚠️ 系统提示：已达到工具调用次数上限。请不要再尝试调用任何工具，直接根据目前已有的信息（包括之前工具返回的错误或结果）给用户一个最终的总结性答复。"))
+
+    model_name = dynamic_config.llm_model
+    limiter = await LimiterRegistry.get_limiter(f"chat:{model_name}", dynamic_config.llm_rpm or 10)
+    async with limiter:
+        response = await llm.ainvoke(messages)
+
+    return {"messages": [response]}
+
+
+# 子图最大工具调用迭代次数（防止 LLM 工具调用失败时无限循环）
+MAX_TOOL_ITERATIONS = 2
+
+
 def _rag_should_continue(state: RagSubState) -> str:
-    """工具调用路由：有 tool_calls 则进入工具节点，否则结束。"""
-    last = state["messages"][-1]
-    if getattr(last, "tool_calls", None):
+    """工具调用路由（含迭代次数保护）。"""
+    messages = state.get("messages", [])
+    if not messages:
+        return END
+
+    # 统计已执行的工具调用轮次
+    tool_call_rounds = sum(
+        1 for m in messages if getattr(m, "tool_calls", None)
+    )
+
+    last = messages[-1]
+    is_tool_call = bool(getattr(last, "tool_calls", None))
+
+    if tool_call_rounds >= MAX_TOOL_ITERATIONS:
+        if is_tool_call:
+            logger.warning(
+                "⚠️ RAG subgraph reached max tool iterations (%d), routing to final_answer.",
+                MAX_TOOL_ITERATIONS,
+            )
+            return "final_answer"
+        return END
+
+    if is_tool_call:
         return "tools"
     return END
 
@@ -152,9 +189,11 @@ def build_rag_subgraph() -> StateGraph:
 
     builder.add_node("rag_agent", rag_agent_node)
     builder.add_node("tools", _rag_tool_node)
+    builder.add_node("final_answer", rag_final_answer_node)
 
     builder.set_entry_point("rag_agent")
     builder.add_conditional_edges("rag_agent", _rag_should_continue)
     builder.add_edge("tools", "rag_agent")
+    builder.add_edge("final_answer", END)
 
     return builder

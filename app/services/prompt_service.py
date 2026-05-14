@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 class PromptService:
     def __init__(self):
         self.java_service_name = settings.NACOS_JAVA_SERVICE_NAME
+        # 增加内存缓存，避免频繁网络请求
+        # 格式: { slug: {"content": str, "timestamp": float} }
+        self._prompt_cache: Dict[str, Dict[str, Any]] = {}
+        self._cache_ttl = 600  # 缓存 600 秒
 
     async def _get_java_base_url(self) -> Optional[str]:
         """通过 Nacos 发现 ms-java-biz 的地址"""
@@ -25,6 +29,15 @@ class PromptService:
 
     async def get_active_prompt(self, slug: str, headers: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
         """从 ms-java-biz 获取生效状态的 Prompt 模板与版本配置"""
+        # 1. 检查缓存
+        now = datetime.now().timestamp()
+        if slug in self._prompt_cache:
+            cache_data = self._prompt_cache[slug]
+            if now - cache_data["timestamp"] < self._cache_ttl:
+                logger.debug(f"🎯 Cache hit for prompt: {slug}")
+                return cache_data["content"]
+
+        # 2. 发现服务地址
         base_url = await self._get_java_base_url()
         if not base_url:
             return None
@@ -34,7 +47,13 @@ class PromptService:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(url, headers=headers)
                 if response.status_code == 200:
-                    return response.json()
+                    data = response.json()
+                    # 3. 更新缓存
+                    self._prompt_cache[slug] = {
+                        "content": data,
+                        "timestamp": now
+                    }
+                    return data
                 else:
                     logger.error(f"Failed to fetch prompt {slug}: {response.status_code} - {response.text}")
                     return None
