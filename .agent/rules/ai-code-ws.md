@@ -30,6 +30,7 @@ trigger: always_on
    - 实现完整的 MCP Client 生命周期：连接 -> 初始化 (Initialize) -> 获取工具列表 (List Tools) -> 调用工具 (Call Tool)。
    - **超时配置**: SSE 模式下必须显式设置 `timeout` (建议 30s+) 和 `sse_read_timeout` (建议 300s+)，避免 httpx 默认 5s 超时。
    - **调用保护**: 工具执行必须包裹在超时控制内（如 `asyncio.wait_for`），并记录耗时日志。
+   - **自动重试**: 必须捕获 `RemoteProtocolError` (incomplete chunked read) 并在 re-connect 后至少执行一次自动重试，以对抗 VPN 链路抖动。
    - 必须优雅地处理 SSE 断线重连逻辑。
 
 4. **API 设计**:

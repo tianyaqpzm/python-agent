@@ -37,7 +37,13 @@ def get_engine():
             max_overflow=10,
             pool_pre_ping=True,
             pool_size=20,
-            pool_recycle=3600,
+            pool_recycle=300,  # 缩短至 5 分钟，主动清理可能失效的连接
+            connect_args={
+                "keepalives": 1,
+                "keepalives_idle": 10,
+                "keepalives_interval": 5,
+                "keepalives_count": 3,
+            }
         )
     return _engine
 

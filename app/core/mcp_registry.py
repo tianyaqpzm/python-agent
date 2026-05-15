@@ -54,52 +54,63 @@ class _ClientEntry:
         self.config = config
         self.session: Optional[ClientSession] = None
         self._tools_cache: List[Dict[str, Any]] = []
-        self._exit_stack: Optional[AsyncExitStack] = None
+        self._local_exit_stack: Optional[AsyncExitStack] = None
         self._reconnect_lock = asyncio.Lock()  # 防止并发重连
         self._is_alive = False
 
-    async def connect(self, exit_stack: AsyncExitStack) -> bool:
-        """建立连接并初始化会话。"""
-        try:
-            if self.config.type == "stdio":
-                params = StdioServerParameters(
-                    command=self.config.command,
-                    args=self.config.args,
-                    env=self.config.env,
-                )
-                read, write = await exit_stack.enter_async_context(stdio_client(params))
-            else:
-                sse_url = self.config.url
-                logger.info("📡 Attempting to connect to SSE MCP Server [%s] at %s", self.config.name, sse_url)
-                # 连接超时 30s（默认 5s 太短），SSE 流读超时 300s（长连接需要较长保活）
-                read, write = await exit_stack.enter_async_context(
-                    sse_client(sse_url, timeout=30, sse_read_timeout=300)
-                )
-
-            self.session = await exit_stack.enter_async_context(
-                ClientSession(read, write)
-            )
-            await self.session.initialize()
-            self._is_alive = True
-            logger.info("✅ MCP Server [%s] connected and initialized.", self.config.name)
-            return True
-        except Exception as exc:
+    async def connect(self) -> bool:
+        """建立连接并初始化会话。确保先关闭旧连接。"""
+        async with self._reconnect_lock:
+            # 1. 彻底清理旧资源
+            if self._local_exit_stack:
+                try:
+                    await self._local_exit_stack.aclose()
+                except Exception as e:
+                    logger.warning("Error closing old exit stack for [%s]: %s", self.config.name, e)
+            
+            self._local_exit_stack = AsyncExitStack()
+            self.session = None
             self._is_alive = False
-            logger.exception("❌ MCP Server [%s] connect failed: %s", self.config.name, exc)
-            return False
 
-    async def _ensure_connected(self, global_exit_stack: AsyncExitStack) -> bool:
+            try:
+                await self._local_exit_stack.__aenter__()
+                
+                if self.config.type == "stdio":
+                    params = StdioServerParameters(
+                        command=self.config.command,
+                        args=self.config.args,
+                        env=self.config.env,
+                    )
+                    read, write = await self._local_exit_stack.enter_async_context(stdio_client(params))
+                else:
+                    sse_url = self.config.url
+                    logger.info("📡 Connecting to SSE MCP Server [%s] at %s", self.config.name, sse_url)
+                    # 调优 httpx 参数：增加 read_timeout
+                    read, write = await self._local_exit_stack.enter_async_context(
+                        sse_client(
+                            sse_url, 
+                            timeout=30.0, 
+                            sse_read_timeout=600.0
+                        )
+                    )
+
+                self.session = await self._local_exit_stack.enter_async_context(
+                    ClientSession(read, write)
+                )
+                await self.session.initialize()
+                self._is_alive = True
+                logger.info("✅ MCP Server [%s] connected and initialized.", self.config.name)
+                return True
+            except Exception as exc:
+                self._is_alive = False
+                logger.exception("❌ MCP Server [%s] connect failed: %s", self.config.name, exc)
+                return False
+
+    async def _ensure_connected(self) -> bool:
         """确保连接可用，如果已断开则尝试重连。"""
         if self._is_alive and self.session:
             return True
-
-        async with self._reconnect_lock:
-            # 双重检查逻辑
-            if self._is_alive and self.session:
-                return True
-
-            logger.warning("🔄 MCP Server [%s] connection lost. Attempting to reconnect...", self.config.name)
-            return await self.connect(global_exit_stack)
+        return await self.connect()
 
     async def list_tools(self) -> List[Dict[str, Any]]:
         """获取工具列表（含 Schema），缓存到实例。"""
@@ -132,57 +143,73 @@ class _ClientEntry:
         tool_name: str,
         arguments: Dict[str, Any],
         auth_header: Optional[str] = None,
-        global_exit_stack: Optional[AsyncExitStack] = None,
     ) -> Any:
         """调用指定工具，支持重连尝试。"""
-        # 1. 确保连接有效
-        if global_exit_stack:
-            await self._ensure_connected(global_exit_stack)
+        
+        max_retries = 1
+        last_error = None
+        
+        for attempt in range(max_retries + 1):
+            # 1. 确保连接有效
+            await self._ensure_connected()
 
-        if not self.session:
-            return {"error": f"MCP Server [{self.config.name}] is not connected."}
+            if not self.session:
+                return {"error": f"MCP Server [{self.config.name}] is not connected."}
 
-        try:
-            import time
-            start = time.perf_counter()
-            from datetime import timedelta
-            
-            # 使用 wait_for 包裹调用
-            result = await asyncio.wait_for(
-                self.session.call_tool(
-                    tool_name,
-                    arguments,
-                    read_timeout_seconds=timedelta(seconds=30),
-                ),
-                timeout=35.0,
-            )
-            elapsed = time.perf_counter() - start
-            logger.info("⏱️ call_tool [%s/%s] completed in %.2fs", self.config.name, tool_name, elapsed)
-            
-            if result.content:
-                content_parts = []
-                for c in result.content:
-                    if hasattr(c, "text"):
-                        content_parts.append(c.text)
-                return "\n".join(content_parts) if content_parts else str(result.content)
-            return ""
+            try:
+                import time
+                start = time.perf_counter()
+                from datetime import timedelta
+                
+                # 使用 wait_for 包裹调用
+                result = await asyncio.wait_for(
+                    self.session.call_tool(
+                        tool_name,
+                        arguments,
+                        read_timeout_seconds=timedelta(seconds=30),
+                    ),
+                    timeout=35.0,
+                )
+                elapsed = time.perf_counter() - start
+                logger.info("⏱️ call_tool [%s/%s] completed in %.2fs (attempt %d)", 
+                            self.config.name, tool_name, elapsed, attempt + 1)
+                
+                if result.content:
+                    content_parts = []
+                    for c in result.content:
+                        if hasattr(c, "text"):
+                            content_parts.append(c.text)
+                    return "\n".join(content_parts) if content_parts else str(result.content)
+                return ""
 
-        except (asyncio.TimeoutError, Exception) as exc:
-            # 关键：一旦发生异常，标记连接为失效，以便下次重连
-            self._is_alive = False
-            error_msg = str(exc)
-            
-            if isinstance(exc, asyncio.TimeoutError):
-                logger.error("⏰ call_tool [%s/%s] timed out", self.config.name, tool_name)
-                return {"error": f"Tool '{tool_name}' execution timed out (35s)"}
-            
-            # 识别特定的连接关闭异常
-            if "peer closed connection" in error_msg.lower() or "incomplete chunked read" in error_msg.lower():
-                logger.error("🚨 MCP Server [%s] connection closed by peer. Marked for reconnection.", self.config.name)
-                return {"error": "MCP Connection closed by server. Please retry once."}
+            except (asyncio.TimeoutError, Exception) as exc:
+                # 标记连接为失效，以便重连
+                self._is_alive = False
+                error_msg = str(exc)
+                last_error = exc
+                
+                # 识别特定的连接关闭异常，准备重试
+                is_conn_error = any(msg in error_msg.lower() for msg in [
+                    "peer closed connection", 
+                    "incomplete chunked read",
+                    "connection closed"
+                ])
+                
+                if is_conn_error and attempt < max_retries:
+                    logger.warning("🚨 MCP Server [%s] connection error: %s. Retrying (%d/%d)...", 
+                                   self.config.name, error_msg, attempt + 1, max_retries)
+                    continue # 触发下一次循环（含 _ensure_connected）
+                
+                # 如果是超时或已达到最大重试次数，则报错
+                if isinstance(exc, asyncio.TimeoutError):
+                    logger.error("⏰ call_tool [%s/%s] timed out", self.config.name, tool_name)
+                    return {"error": f"Tool '{tool_name}' execution timed out (35s)"}
 
-            logger.error("❌ call_tool [%s/%s] failed: %s", self.config.name, tool_name, error_msg)
-            return {"error": error_msg}
+                logger.error("❌ call_tool [%s/%s] failed after %d attempt(s): %s", 
+                             self.config.name, tool_name, attempt + 1, error_msg)
+                return {"error": error_msg}
+
+        return {"error": f"Failed to execute tool after {max_retries} retries. Last error: {last_error}"}
 
 
 class MCPToolRegistry:
@@ -249,7 +276,7 @@ class MCPToolRegistry:
 
         for name, config in self._configs.items():
             entry = _ClientEntry(config)
-            ok = await entry.connect(self._exit_stack)
+            ok = await entry.connect()
             if ok:
                 self._clients[name] = entry
 
@@ -300,8 +327,7 @@ class MCPToolRegistry:
         """
         for entry in self._clients.values():
             if any(t["name"] == tool_name for t in entry._tools_cache):
-                # 传入 self._exit_stack 以支持按需重连
-                return await entry.call_tool(tool_name, arguments, auth_header, self._exit_stack)
+                return await entry.call_tool(tool_name, arguments, auth_header)
         return {"error": f"Tool '{tool_name}' not found in any registered MCP server."}
 
     # ------------------------------------------------------------------

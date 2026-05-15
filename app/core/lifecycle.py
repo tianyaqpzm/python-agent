@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
     pg_uri = str(settings.DB_URI).replace("+asyncpg", "").replace("+psycopg", "")
     # 如果 settings.DB_URI 还是旧的，我们根据最新的 host/port 重新构造 (保险做法)
     if hasattr(settings, "PG_HOST"):
-        pg_uri = f"postgresql://{settings.PG_USER}:{settings.PG_PASSWORD}@{settings.PG_HOST}:{settings.PG_PORT}/{settings.PG_DB}"
+        pg_uri = f"postgresql://{settings.PG_USER}:{settings.PG_PASSWORD}@{settings.PG_HOST}:{settings.PG_PORT}/{settings.PG_DB}?sslmode=require&connect_timeout=10"
 
     app.state.lg_pool = AsyncConnectionPool(
         conninfo=pg_uri,
@@ -70,16 +70,17 @@ async def lifespan(app: FastAPI):
         check=AsyncConnectionPool.check_connection,
         configure=configure_conn,
         max_lifetime=600,
+        reconnect_timeout=60.0,
         kwargs={
             "autocommit": True,
             "keepalives": 1,
-            "keepalives_idle": 30,
-            "keepalives_interval": 10,
-            "keepalives_count": 5,
+            "keepalives_idle": 10,  # 缩短至 10s，应对 VPN 环境
+            "keepalives_interval": 5,
+            "keepalives_count": 3,
         },
     )
     await app.state.lg_pool.open()
-    logger.info("✅ LangGraph Checkpoint Pool created.")
+    logger.info("✅ LangGraph Checkpoint Pool created with optimized keepalives.")
 
     # 4. 运行 LangGraph Setup
     try:
