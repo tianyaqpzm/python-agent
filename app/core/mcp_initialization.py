@@ -27,18 +27,27 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-async def setup_mcp_registry() -> None:
-    """
-    初始化 MCPToolRegistry（新架构入口）。
+async def sync_mcp_with_user(user_id: str) -> None:
+    """按需同步指定用户的 MCP 插件。"""
+    await setup_mcp_registry(user_id=user_id)
 
-    1. 从 ms-java-biz 拉取已启用的插件列表
+
+async def setup_mcp_registry(user_id: str = "") -> None:
+    """
+    初始化或同步 MCP 注册表。
+
+    1. 从 ms-java-biz 拉取指定用户已启用的插件列表
     2. 动态向 registry 注册这些插件
-    3. 调用 registry.setup() 建立连接
+    3. 调用 registry.setup() 增量建立连接
     """
     from app.core.mcp_registry import mcp_tool_registry
     import httpx
 
     java_url = await _resolve_java_mcp_url()
+    
+    # 清理旧配置映射，准备根据最新的列表重新注册
+    mcp_tool_registry.clear_configs()
+
     if not java_url:
         logger.warning("⚠️  Java service not found, using fallback local registration.")
         _register_fallbacks(mcp_tool_registry)
@@ -51,55 +60,53 @@ async def setup_mcp_registry() -> None:
     request_id = str(uuid.uuid4())[:8]
     start_time = time.perf_counter()
 
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            # 获取已启用的插件 (Whitelist mode)
-            logger.info("📡 [MCP-Init-%s] Fetching enabled MCP plugins from: %s/rest/biz/v1/mcp-plugins/enabled", 
-                        request_id, java_url)
-            
-            response = await client.get(f"{java_url}/rest/biz/v1/mcp-plugins/enabled")
-            duration = time.perf_counter() - start_time
-            
-            if response.status_code == 200:
-                plugins = response.json()
-                logger.info("✅ [MCP-Init-%s] Successfully fetched %d plugin(s) from Java service in %.2fs.", 
-                            request_id, len(plugins), duration)
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # 获取已启用的插件 (带上 X-User-Id)
+                headers = {"X-User-Id": user_id} if user_id else {}
                 
-                if not plugins:
-                    logger.warning("⚠️  [MCP-Init-%s] No enabled MCP plugins found in Java service.", request_id)
+                logger.debug("📡 [MCP-Init-%s] Fetching plugins for User[%s] from: %s/rest/biz/v1/mcp-plugins/enabled", 
+                            request_id, user_id or "ANONYMOUS", java_url)
                 
-                for p in plugins:
-                    name = p["name"]
-                    p_type = p["type"]
-                    config = p.get("config", {})
-                    
-                    if p_type == "sse":
-                        # 处理相对路径 (如 /mcp/sse -> http://host:port/mcp/sse)
-                        url = config.get("url")
-                        if url and url.startswith("/"):
-                            url = f"{java_url}{url}"
-                        mcp_tool_registry.register_sse(name=name, url=url)
-                    
-                    elif p_type == "stdio":
-                        mcp_tool_registry.register_stdio(
-                            name=name,
-                            command=config.get("command"),
-                            args=config.get("args", []),
-                            env=config.get("env")
-                        )
-                logger.info("✅ [MCP-Init-%s] Dynamically registered %d MCP plugin(s).", request_id, len(plugins))
-            else:
-                logger.warning("⚠️  [MCP-Init-%s] Failed to fetch MCP plugins (Status: %d) in %.2fs. Using fallbacks.", 
-                               request_id, response.status_code, duration)
+                response = await client.get(
+                    f"{java_url}/rest/biz/v1/mcp-plugins/enabled",
+                    headers=headers
+                )
+                
+                if response.status_code == 200:
+                    plugins = response.json()
+                    for p in plugins:
+                        name = p["name"]
+                        p_type = p["type"]
+                        config = p.get("config", {})
+                        
+                        if p_type == "sse":
+                            url = config.get("url")
+                            if url and url.startswith("/"):
+                                url = f"{java_url}{url}"
+                            mcp_tool_registry.register_sse(name=name, url=url)
+                        
+                        elif p_type == "stdio":
+                            mcp_tool_registry.register_stdio(
+                                name=name,
+                                command=config.get("command"),
+                                args=config.get("args", []),
+                                env=config.get("env")
+                            )
+                    break
+                else:
+                    if attempt == max_retries - 1:
+                        _register_fallbacks(mcp_tool_registry)
+        
+        except Exception as e:
+            if attempt == max_retries - 1:
+                logger.error("❌ [MCP-Init-%s] Sync failed: %s. Using fallbacks.", request_id, e)
                 _register_fallbacks(mcp_tool_registry)
-    
-    except Exception as e:
-        duration = time.perf_counter() - start_time
-        logger.error("❌ [MCP-Init-%s] Error fetching MCP plugins after %.2fs: %s. Using fallbacks.", 
-                     request_id, duration, e)
-        _register_fallbacks(mcp_tool_registry)
+            continue
 
-    # 统一建立连接
+    # 增量建立连接（自动处理连接复用与过期关闭）
     await mcp_tool_registry.setup()
 
 
@@ -117,27 +124,11 @@ def _register_fallbacks(registry: Any) -> None:
 
 async def setup_mcp_clients() -> None:
     """
-    兼容旧架构的初始化函数（供 lifecycle.py 调用）。
-    同时初始化新 Registry 和旧 Client。
+    初始化所有 MCP 客户端（新架构入口）。
+    完全依赖 Java 服务返回的动态列表进行自发现。
     """
-    # 新架构：动态拉取并连接
+    # 新架构：动态拉取并连接（包含 Java 自身和外部插件）
     await setup_mcp_registry()
-
-    # 旧架构兼容（供旧 chat_graph.py 使用，不影响新逻辑）
-    _setup_legacy_clients()
-
-
-def _setup_legacy_clients() -> None:
-    """保留旧 mcp_clients 注册，防止旧代码崩溃。"""
-    try:
-        from app.services.mcp_client import NacosSSEMCPClient, register_mcp_client
-        java_client = NacosSSEMCPClient(
-            name="java-service",
-            target_service_name=settings.NACOS_JAVA_SERVICE_NAME,
-        )
-        register_mcp_client(java_client)
-    except Exception:
-        pass
 
 
 async def connect_clients() -> None:

@@ -135,7 +135,7 @@ async def rag_final_answer_node(state: RagSubState, config: RunnableConfig) -> D
 
 
 # 子图最大工具调用迭代次数（防止 LLM 工具调用失败时无限循环）
-MAX_TOOL_ITERATIONS = 2
+MAX_TOOL_ITERATIONS = 5
 
 
 def _rag_should_continue(state: RagSubState) -> str:

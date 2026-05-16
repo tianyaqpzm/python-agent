@@ -43,23 +43,32 @@ class PromptService:
             return None
 
         url = f"{base_url}/rest/biz/v1/prompts/{slug}"
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(url, headers=headers)
-                if response.status_code == 200:
-                    data = response.json()
-                    # 3. 更新缓存
-                    self._prompt_cache[slug] = {
-                        "content": data,
-                        "timestamp": now
-                    }
-                    return data
-                else:
-                    logger.error(f"Failed to fetch prompt {slug}: {response.status_code} - {response.text}")
-                    return None
-        except Exception as e:
-            logger.exception(f"❌ Error calling prompt service (slug={slug}): {e}")
-            return None
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # 增加超时时间到 15s，并添加重试逻辑
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    response = await client.get(url, headers=headers)
+                    if response.status_code == 200:
+                        data = response.json()
+                        # 3. 更新缓存
+                        self._prompt_cache[slug] = {
+                            "content": data,
+                            "timestamp": now
+                        }
+                        return data
+                    else:
+                        logger.error(f"Failed to fetch prompt {slug}: {response.status_code} - {response.text}")
+                        return None
+            except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"⏳ Attempt {attempt + 1} failed for prompt {slug} due to timeout, retrying...")
+                    continue
+                logger.error(f"❌ Final attempt failed for prompt {slug}: {e}")
+                return None
+            except Exception as e:
+                logger.exception(f"❌ Unexpected error calling prompt service (slug={slug}): {e}")
+                return None
 
     def render_prompt(self, template: str, variables: Dict[str, Any]) -> str:
         """

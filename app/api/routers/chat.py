@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from app.agent.factory import get_graph_runnable
 from app.services.chat_graph import save_chat_history
-from app.core.database import AsyncSessionLocal
+from app.core.database import AsyncSessionLocal, get_lg_pool
 from app.core.security import CurrentUser, get_current_user
 from langchain_core.messages import HumanMessage
 import json
@@ -25,24 +25,22 @@ async def chat_endpoint(
     body: ChatRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    # 拿到连接池
-    lg_pool = getattr(request.app.state, "lg_pool", None)
-    if not lg_pool:
-        logger.error("lg_pool is not initialized in app state")
-        return StreamingResponse(
-            iter([f"data: {json.dumps({'error': 'Internal server error: Database pool not initialized'})}\n\n"]),
-            media_type="text/event-stream"
-        )
-
     async def event_generator():
         try:
             # 发送一个初始握手信号，确认连接已建立且生成器已启动
             yield ": connected\n\n"
-            
-            final_response = ""
+
+            # 1. 按需同步当前用户启用的 MCP 插件
             try:
-                # 获取编译好的 Graph (此时传入的是 pool，工厂内部会按需取放连接)
-                graph = await get_graph_runnable(lg_pool)
+                from app.core.mcp_initialization import sync_mcp_with_user
+                await sync_mcp_with_user(user_id=current_user.id)
+            except Exception as e:
+                logger.error(f"⚠️ MCP User Sync failed: {e}")
+                # 继续执行，可能还有静态工具可用
+            try:
+                # 获取编译好的 Graph (直接获取连接池)
+                pool = await get_lg_pool()
+                graph = await get_graph_runnable(pool)
 
                 input_message = HumanMessage(content=body.message)
                 # 提取授权头，用于后续透传给 Java MCP 服务
