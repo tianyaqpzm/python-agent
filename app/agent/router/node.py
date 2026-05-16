@@ -23,7 +23,7 @@ from langchain_core.runnables.config import RunnableConfig
 
 from app.agent.state import GlobalState, IntentType
 from app.core.dynamic_config import dynamic_config
-from app.core.llm_factory import LLMFactory
+from app.services.llm_service import llm_service
 from app.services.prompt_service import prompt_service
 
 logger = logging.getLogger(__name__)
@@ -144,12 +144,7 @@ async def router_node(state: GlobalState, config: RunnableConfig) -> Dict[str, A
         auth_header = state.get("auth_header") or config.get("configurable", {}).get("auth_header")
         system_prompt = await _get_router_prompt(auth_header=auth_header)
 
-        llm = LLMFactory.get_llm(
-            provider=dynamic_config.llm_provider,
-            base_url=dynamic_config.llm_base_url,
-            model_name=dynamic_config.llm_model,
-            api_key=dynamic_config.llm_api_key,
-        )
+        llm = llm_service.get_default_llm(temperature=0.1, streaming=False)
         response = await llm.ainvoke(
             [
                 SystemMessage(content=system_prompt),

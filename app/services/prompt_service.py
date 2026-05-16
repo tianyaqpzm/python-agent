@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 class PromptService:
     def __init__(self):
         self.java_service_name = settings.NACOS_JAVA_SERVICE_NAME
+        # 增加内存缓存，避免频繁网络请求
+        # 格式: { slug: {"content": str, "timestamp": float} }
+        self._prompt_cache: Dict[str, Dict[str, Any]] = {}
+        self._cache_ttl = 600  # 缓存 600 秒
 
     async def _get_java_base_url(self) -> Optional[str]:
         """通过 Nacos 发现 ms-java-biz 的地址"""
@@ -25,22 +29,46 @@ class PromptService:
 
     async def get_active_prompt(self, slug: str, headers: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
         """从 ms-java-biz 获取生效状态的 Prompt 模板与版本配置"""
+        # 1. 检查缓存
+        now = datetime.now().timestamp()
+        if slug in self._prompt_cache:
+            cache_data = self._prompt_cache[slug]
+            if now - cache_data["timestamp"] < self._cache_ttl:
+                logger.debug(f"🎯 Cache hit for prompt: {slug}")
+                return cache_data["content"]
+
+        # 2. 发现服务地址
         base_url = await self._get_java_base_url()
         if not base_url:
             return None
 
         url = f"{base_url}/rest/biz/v1/prompts/{slug}"
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(url, headers=headers)
-                if response.status_code == 200:
-                    return response.json()
-                else:
-                    logger.error(f"Failed to fetch prompt {slug}: {response.status_code} - {response.text}")
-                    return None
-        except Exception as e:
-            logger.exception(f"❌ Error calling prompt service (slug={slug}): {e}")
-            return None
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # 增加超时时间到 15s，并添加重试逻辑
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    response = await client.get(url, headers=headers)
+                    if response.status_code == 200:
+                        data = response.json()
+                        # 3. 更新缓存
+                        self._prompt_cache[slug] = {
+                            "content": data,
+                            "timestamp": now
+                        }
+                        return data
+                    else:
+                        logger.error(f"Failed to fetch prompt {slug}: {response.status_code} - {response.text}")
+                        return None
+            except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"⏳ Attempt {attempt + 1} failed for prompt {slug} due to timeout, retrying...")
+                    continue
+                logger.error(f"❌ Final attempt failed for prompt {slug}: {e}")
+                return None
+            except Exception as e:
+                logger.exception(f"❌ Unexpected error calling prompt service (slug={slug}): {e}")
+                return None
 
     def render_prompt(self, template: str, variables: Dict[str, Any]) -> str:
         """
