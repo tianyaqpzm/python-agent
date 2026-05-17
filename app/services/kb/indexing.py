@@ -22,8 +22,8 @@ class BaseIndexingProcessor(ABC):
         model = embedding_model if embedding_model else settings.KB_EMBEDDING_MODEL
         
         self.embeddings = LLMFactory.get_embedding_model(
-            provider=settings.KB_EMBEDDING_PROVIDER,
-            model_name=settings.KB_EMBEDDING_MODEL,
+            provider=provider,
+            model_name=model,
             api_key=settings.KB_API_KEY,
             base_url=settings.KB_BASE_URL,
         )
@@ -87,7 +87,7 @@ class DefaultPGVectorProcessor(BaseIndexingProcessor):
         
         try:
             target_url = f"{settings.KB_BASE_URL}/embeddings"
-            model_name = getattr(self.embeddings, 'model', settings.KB_EMBEDDING_MODEL)
+            model_name = getattr(self.embeddings, 'model', getattr(self.embeddings, 'model_name', settings.KB_EMBEDDING_MODEL))
             
             # 架构级公共能力：通过 Registry 获取针对该模型的唯一限流器
             limiter = await LimiterRegistry.get_limiter(f"embedding:{model_name}", settings.KB_EMBEDDING_RPM)

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 @dataclass(eq=False)
 class ChatMessage:
@@ -91,4 +91,70 @@ class TaskRecord:
         return self.id == other.id
 
     def __hash__(self):
+        return hash(self.id)
+
+
+@dataclass(eq=False)
+class KnowledgeDocument:
+    """Pure domain model for generic knowledge documents."""
+    file_path: str
+    file_hash: str
+    doc_type: str
+    title: str
+    category: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    id: Optional[int] = None
+
+    def __post_init__(self):
+        if not self.file_path:
+            raise ValueError("File path is required")
+        if not self.file_hash:
+            raise ValueError("File hash is required")
+        if not self.doc_type:
+            raise ValueError("Document type is required")
+        if not self.title:
+            raise ValueError("Title is required")
+        if not isinstance(self.metadata, dict):
+            raise TypeError("Metadata must be a dictionary")
+
+    def __eq__(self, other):
+        if not isinstance(other, KnowledgeDocument):
+            return NotImplemented
+        if self.id is None or other.id is None:
+            return self is other
+        return self.id == other.id
+
+    def __hash__(self):
+        if self.id is None:
+            return hash(id(self))
+        return hash(self.id)
+
+
+@dataclass(eq=False)
+class KnowledgeChunk:
+    """Pure domain model for knowledge document chunks."""
+    document_id: int
+    chunk_index: int
+    content: str
+    embedding: List[float] = field(default_factory=list)
+    id: Optional[int] = None
+
+    def __post_init__(self):
+        if self.document_id is None:
+            raise ValueError("Document ID is required")
+        if self.chunk_index < 0:
+            raise ValueError("Chunk index cannot be negative")
+        if not self.content:
+            raise ValueError("Content cannot be empty")
+
+    def __eq__(self, other):
+        if not isinstance(other, KnowledgeChunk):
+            return NotImplemented
+        if self.id is None or other.id is None:
+            return self is other
+        return self.id == other.id
+
+    def __hash__(self):
+        if self.id is None:
+            return hash(id(self))
         return hash(self.id)

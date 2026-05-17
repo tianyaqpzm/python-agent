@@ -8,12 +8,12 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 
 from sqlalchemy import text
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import MarkdownHeaderTextSplitter
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.domain.models import TaskRecord
+from app.domain.models import TaskRecord, KnowledgeDocument
+from app.infrastructure.repositories.knowledge_repository import SqlAlchemyKnowledgeRepository
 
 logger = logging.getLogger(__name__)
 
@@ -99,10 +99,12 @@ class RecipeBuildService:
         """懒加载 HuggingFaceEmbeddings 单例"""
         if cls._embeddings is None:
             logger.info("🏗️ Initializing BAAI/bge-small-zh-v1.5 embedding model...")
-            cls._embeddings = HuggingFaceEmbeddings(
+            from app.core.llm_factory import LLMFactory
+            cls._embeddings = LLMFactory.get_embedding_model(
+                provider="huggingface",
                 model_name="BAAI/bge-small-zh-v1.5",
-                model_kwargs={'device': 'cpu'},
-                encode_kwargs={'normalize_embeddings': True}
+                api_key="",
+                base_url=""
             )
         return cls._embeddings
 
@@ -165,64 +167,58 @@ class RecipeBuildService:
                 await cls._update_task_progress(task_id, total_files, processed_count, dish_name)
 
                 # 4.3 数据库增量对比
+                should_skip = False
+                existing_doc_id = None
+                
                 async with AsyncSessionLocal() as session:
-                    res = await session.execute(
-                        text("SELECT id, file_hash FROM ms_recipe_document WHERE file_path = :file_path"),
-                        {"file_path": file_path}
-                    )
-                    existing = res.fetchone()
+                    repo = SqlAlchemyKnowledgeRepository(session)
+                    existing_doc = await repo.find_by_filepath(file_path)
 
-                    if existing:
-                        doc_id, existing_hash = existing
-                        if existing_hash == file_hash:
+                    if existing_doc:
+                        if existing_doc.file_hash == file_hash:
                             # Hash 无变化，直接跳过分块与向量计算
                             logger.info(f"⏭️ Skipping {dish_name} (incremental - no changes)")
-                            processed_count += 1
-                            await cls._update_task_progress(task_id, total_files, processed_count, dish_name)
-                            continue
+                            should_skip = True
                         else:
-                            # Hash 变化，删除旧文档（级联删除 chunks）
+                            # Hash 变化，记录旧文档以进行删除
                             logger.info(f"♻️ Updating {dish_name} (hash changed)")
-                            async with session.begin():
-                                await session.execute(
-                                    text("DELETE FROM ms_recipe_document WHERE id = :id"),
-                                    {"id": doc_id}
-                                )
+                            existing_doc_id = existing_doc.id
 
-                    # 4.4 插入新文档记录
-                    async with session.begin():
-                        insert_res = await session.execute(
-                            text("INSERT INTO ms_recipe_document (file_path, file_hash, dish_name, category, difficulty) "
-                                 "VALUES (:file_path, :file_hash, :dish_name, :category, :difficulty) RETURNING id"),
-                            {
-                                "file_path": file_path,
-                                "file_hash": file_hash,
-                                "dish_name": dish_name,
-                                "category": parsed["category"],
-                                "difficulty": parsed["difficulty"]
-                            }
-                        )
-                        new_doc_id = insert_res.scalar()
+                if should_skip:
+                    processed_count += 1
+                    await cls._update_task_progress(task_id, total_files, processed_count, dish_name)
+                    continue
 
-                    # 4.5 对文档内容进行分块并向量化入库
-                    chunks = RecipeParser.split_recipe(parsed["content"])
-                    if chunks:
-                        # 批量计算 embedding
-                        embeddings_list = await embeddings.aembed_documents(chunks)
-
+                if existing_doc_id is not None:
+                    async with AsyncSessionLocal() as session:
                         async with session.begin():
-                            for idx, (chunk_content, emb) in enumerate(zip(chunks, embeddings_list)):
-                                emb_str = f"[{','.join(map(str, emb))}]"
-                                await session.execute(
-                                    text("INSERT INTO ms_recipe_chunk (document_id, chunk_index, content, embedding) "
-                                         "VALUES (:doc_id, :idx, :content, CAST(:emb AS vector))"),
-                                    {
-                                        "doc_id": new_doc_id,
-                                        "idx": idx,
-                                        "content": chunk_content,
-                                        "emb": emb_str
-                                    }
-                                )
+                            repo = SqlAlchemyKnowledgeRepository(session)
+                            await repo.delete_by_id(existing_doc_id)
+
+                # 4.4 插入新文档记录
+                async with AsyncSessionLocal() as session:
+                    async with session.begin():
+                        repo = SqlAlchemyKnowledgeRepository(session)
+                        new_doc = KnowledgeDocument(
+                            file_path=file_path,
+                            file_hash=file_hash,
+                            doc_type="recipe",
+                            title=dish_name,
+                            category=parsed["category"],
+                            metadata={"difficulty": parsed["difficulty"]}
+                        )
+                        new_doc_id = await repo.save_document(new_doc)
+
+                # 4.5 对文档内容进行分块并向量化入库
+                chunks = RecipeParser.split_recipe(parsed["content"])
+                if chunks:
+                    # 批量计算 embedding
+                    embeddings_list = await embeddings.aembed_documents(chunks)
+
+                    async with AsyncSessionLocal() as session:
+                        async with session.begin():
+                            repo = SqlAlchemyKnowledgeRepository(session)
+                            await repo.save_chunks(new_doc_id, chunks, embeddings_list)
 
                 processed_count += 1
                 await cls._update_task_progress(task_id, total_files, processed_count, dish_name)

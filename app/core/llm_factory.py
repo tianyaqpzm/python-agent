@@ -49,6 +49,14 @@ class LLMFactory:
                 openai_api_key=api_key,
                 **kwargs
             )
+        elif provider.lower() == "huggingface":
+            logger.info(f"🏗️ 正在延迟加载 HuggingFace Embedding 模型: Model={model_name}")
+            from langchain_huggingface import HuggingFaceEmbeddings
+            return HuggingFaceEmbeddings(
+                model_name=model_name,
+                model_kwargs={'device': 'cpu'},
+                encode_kwargs={'normalize_embeddings': True}
+            )
         else:
             raise ValueError(f"Unsupported Embedding provider: {provider}")
 
