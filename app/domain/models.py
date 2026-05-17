@@ -103,7 +103,8 @@ class KnowledgeDocument:
     title: str
     category: str
     metadata: Dict[str, Any] = field(default_factory=dict)
-    id: Optional[int] = None
+    id: Optional[str] = None
+    topic_id: Optional[str] = None
 
     def __post_init__(self):
         if not self.file_path:
@@ -133,7 +134,7 @@ class KnowledgeDocument:
 @dataclass(eq=False)
 class KnowledgeChunk:
     """Pure domain model for knowledge document chunks."""
-    document_id: int
+    document_id: str
     chunk_index: int
     content: str
     embedding: List[float] = field(default_factory=list)

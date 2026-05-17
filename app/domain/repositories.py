@@ -11,16 +11,16 @@ class IKnowledgeRepository(ABC):
         pass
 
     @abstractmethod
-    async def delete_by_id(self, doc_id: int) -> None:
+    async def delete_by_id(self, doc_id: str) -> None:
         """Delete a knowledge document (and cascading chunks if any) by document ID."""
         pass
 
     @abstractmethod
-    async def save_document(self, doc: KnowledgeDocument) -> int:
+    async def save_document(self, doc: KnowledgeDocument) -> str:
         """Insert a new knowledge document and return its new ID."""
         pass
 
     @abstractmethod
-    async def save_chunks(self, doc_id: int, chunks: List[str], embeddings: List[List[float]]) -> None:
+    async def save_chunks(self, doc_id: str, chunks: List[str], embeddings: List[List[float]]) -> None:
         """Batch save chunk contents and their corresponding vector embeddings."""
         pass
