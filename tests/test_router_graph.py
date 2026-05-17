@@ -118,7 +118,7 @@ class TestRouterNodeKeywords:
         mock_llm = AsyncMock()
         mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content="general"))
 
-        with patch("app.agent.router.node.LLMFactory.get_llm", return_value=mock_llm):
+        with patch("app.agent.router.node.llm_service.get_default_llm", return_value=mock_llm):
             state = {
                 "messages": [HumanMessage(content="今天天气怎么样")],
                 "intent": None,
