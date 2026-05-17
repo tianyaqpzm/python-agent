@@ -46,11 +46,11 @@ class Config:
 
     @property
     def DB_URI(self) -> str:
-        return f"postgresql://{self.PG_USER}:{self.PG_PASSWORD}@{self.PG_HOST}:{self.PG_PORT}/{self.PG_DB}"
+        return f"postgresql://{self.PG_USER}:{self.PG_PASSWORD}@{self.PG_HOST}:{self.PG_PORT}/{self.PG_DB}?sslmode=require&connect_timeout=10"
 
     @property
     def DB_ASYNC_URI(self) -> str:
-        return f"postgresql+psycopg://{self.PG_USER}:{self.PG_PASSWORD}@{self.PG_HOST}:{self.PG_PORT}/{self.PG_DB}"
+        return f"postgresql+psycopg://{self.PG_USER}:{self.PG_PASSWORD}@{self.PG_HOST}:{self.PG_PORT}/{self.PG_DB}?sslmode=require&connect_timeout=10"
 
     # LLM
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "new-api")

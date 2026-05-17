@@ -28,6 +28,9 @@ trigger: always_on
 3. **MCP Client 集成**:
    - **禁止**硬编码 localhost。必须使用 `nacos-sdk-python` 动态获取 `ms-java-biz` 的 IP 和端口。
    - 实现完整的 MCP Client 生命周期：连接 -> 初始化 (Initialize) -> 获取工具列表 (List Tools) -> 调用工具 (Call Tool)。
+   - **超时配置**: SSE 模式下必须显式设置 `timeout` (建议 30s+) 和 `sse_read_timeout` (建议 300s+)，避免 httpx 默认 5s 超时。
+   - **调用保护**: 工具执行必须包裹在超时控制内（如 `asyncio.wait_for`），并记录耗时日志。
+   - **自动重试**: 必须捕获 `RemoteProtocolError` (incomplete chunked read) 并在 re-connect 后至少执行一次自动重试，以对抗 VPN 链路抖动。
    - 必须优雅地处理 SSE 断线重连逻辑。
 
 4. **API 设计**:
@@ -36,6 +39,9 @@ trigger: always_on
 
 5. **领域层与类型安全 (Domain & Typing)**:
    - **领域隔离**: 领域模型必须是纯 POJO (使用 `@dataclass`)，严禁继承 ORM 基类。参考 [CODING_STANDARDS.md](./CODING_STANDARDS.md)。
+   - **实体与值对象**: 
+     - **实体 (Entity)**: 必须使用 `@dataclass(eq=False)`，并手动实现基于 ID 的 `__eq__` 和 `__hash__`。
+     - **值对象 (Value Object)**: 必须使用 `@dataclass(frozen=True)`，依靠默认的值相等性判断。
    - **100% 类型覆盖**: 核心业务逻辑与方法签名必须包含完整的 Type Hints。
    - **异常处理**: 严禁空捕获，必须精准捕获具体异常并记录有效日志。
 
@@ -64,6 +70,7 @@ trigger: always_on
 - **意图分类策略**: `router_node` 优先使用关键词规则（保证测试确定性），未命中时 fallback 到 LLM 分类。
 - **State 隔离**: 每个子图使用专属 TypedDict（如 `RagSubState`），子图不得访问其他子图的专属字段。
 - **工厂函数约定**: `build_xxx_subgraph()` 返回**未编译**的 `StateGraph`，由父图或工厂统一编译后注入 Checkpointer。
+- **死循环保护 (Circuit Breaker)**: 所有包含工具调用的子图必须设置 `MAX_TOOL_ITERATIONS`（建议 2-5 次），在 `should_continue` 逻辑中强制校验迭代次数，超限必须终止并记录 Warning 日志。
 
 ## 9. MCPToolRegistry 规范
 

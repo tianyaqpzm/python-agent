@@ -77,5 +77,5 @@ def setup_logging(log_dir="logs"):
     nacos_client_logger = logging.getLogger("nacos.client")
     nacos_client_logger.propagate = False
     nacos_client_logger.addHandler(nacos_handler)
-
+    
     logging.info("✅ Logging system initialized with Gzip rotation.")
