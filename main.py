@@ -31,8 +31,8 @@ app = FastAPI(
 )
 
 # 注册路由
-app.include_router(chat.router, tags=["chat"])
-app.include_router(kb.router, prefix="/rest/kb/v1", tags=["Knowledge Base"])
+app.include_router(chat.router, prefix="/rest/agent/v1", tags=["chat"])
+app.include_router(kb.router, prefix="/rest/agent/v1", tags=["Knowledge Base"])
 
 from app.core.exception_handler import global_exception_handler
 app.add_exception_handler(Exception, global_exception_handler)

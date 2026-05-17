@@ -44,6 +44,9 @@ class Config:
     PG_PASSWORD: str = os.getenv("PG_PASSWORD", "postgres")
     PG_DB: str = os.getenv("PG_DB", "postgres")
 
+    # Recipe KB Data Path
+    CONFIG_DATA_PATH: str = os.getenv("CONFIG_DATA_PATH", "/tmp/ai_knowledge_uploads/recipes")
+
     @property
     def DB_URI(self) -> str:
         return f"postgresql://{self.PG_USER}:{self.PG_PASSWORD}@{self.PG_HOST}:{self.PG_PORT}/{self.PG_DB}?sslmode=require&connect_timeout=10"

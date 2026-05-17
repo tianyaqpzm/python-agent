@@ -44,3 +44,51 @@ class ServiceInstance:
             raise ValueError("IP address is required")
         if not (0 <= self.port <= 65535):
             raise ValueError(f"Invalid port: {self.port}")
+
+@dataclass(eq=False)
+class TaskRecord:
+    """Pure domain model for background task records (Rich Domain Model)."""
+    id: str
+    task_type: str
+    status: str = "RUNNING"
+    total_count: int = 0
+    processed_count: int = 0
+    current_item_name: Optional[str] = None
+    error_message: Optional[str] = None
+    create_time: Optional[datetime] = None
+    update_time: Optional[datetime] = None
+
+    def __post_init__(self):
+        if not self.id:
+            raise ValueError("Task ID is required")
+        if not self.task_type:
+            raise ValueError("Task type is required")
+        if self.status not in ["RUNNING", "SUCCESS", "FAILED"]:
+            raise ValueError(f"Invalid task status: {self.status}")
+        if self.processed_count < 0:
+            raise ValueError("Processed count cannot be negative")
+
+    def update_progress(self, total_count: int, processed_count: int, current_item_name: Optional[str]):
+        if processed_count < 0:
+            raise ValueError("Processed count cannot be negative")
+        self.total_count = total_count
+        self.processed_count = processed_count
+        self.current_item_name = current_item_name
+        self.update_time = datetime.now()
+
+    def complete(self):
+        self.status = "SUCCESS"
+        self.update_time = datetime.now()
+
+    def fail(self, error_message: str):
+        self.status = "FAILED"
+        self.error_message = error_message
+        self.update_time = datetime.now()
+
+    def __eq__(self, other):
+        if not isinstance(other, TaskRecord):
+            return NotImplemented
+        return self.id == other.id
+
+    def __hash__(self):
+        return hash(self.id)

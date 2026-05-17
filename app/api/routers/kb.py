@@ -207,3 +207,22 @@ async def ask_knowledge(
             
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/knowledge/build", summary="触发菜谱知识库增量向量化构建")
+async def build_recipe_knowledge_base(
+    _: CurrentUser = Depends(get_current_user)
+):
+    """
+    触发知识库增量构建背景任务，初始化任务记录并异步处理。
+    """
+    import uuid
+    from app.services.kb.recipe_build_service import RecipeBuildService
+
+    task_id = f"task-{uuid.uuid4()}"
+    await RecipeBuildService.trigger_build(task_id)
+    return {
+        "status": "success",
+        "taskId": task_id
+    }
+
