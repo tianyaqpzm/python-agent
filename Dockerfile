@@ -27,7 +27,7 @@ COPY pyproject.toml uv.lock ./
 
 # 安装 Python 依赖
 # 使用 --system 安装到系统环境，因为是在容器内
-RUN uv pip install --system --no-cache --no-cache-dir -r pyproject.toml
+RUN uv pip install --system --no-cache-dir -r pyproject.toml
 
 # 复制应用代码
 COPY . .
