@@ -36,7 +36,9 @@ COPY . .
 EXPOSE $APP_PORT
 
 # 创建非 root 用户运行
-RUN useradd -m myuser
+RUN useradd -m myuser \
+    && mkdir -p /app/logs \
+    && chown -R myuser:myuser /app/logs
 USER myuser
 
 # 启动命令

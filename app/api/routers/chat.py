@@ -19,7 +19,7 @@ class ChatRequest(BaseModel):
     message: str
     topic_id: Optional[str] = None
 
-@router.post("/rest/dark/v1/agent/chat")
+@router.post("/chat")
 async def chat_endpoint(
     request: Request,
     body: ChatRequest,

@@ -1,121 +1,153 @@
+# 🧠 Python Agent (系统“大脑”)
+
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-Agent编排-orange.svg)](https://langchain-ai.github.io/langgraph/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+本项目是 AI 系统中的核心**“大脑” (Brain)**。基于 **FastAPI** 和 **LangGraph** 构建，负责编排复杂的智能体工作流、维护基于 PostgreSQL 的长期记忆，并通过 **Model Context Protocol (MCP)** 协议与 Java 业务后端及外部工具进行深度交互。
+
 ---
-title: ms-py-agent
-emoji: 🤖
-colorFrom: blue
-colorTo: green
-sdk: gradio
-app_file: app.py  # <--- 添加这一行，指定启动文件
-pinned: false
-paused: true
+
+## 🌟 核心特性
+
+- **智能体编排 (Agentic Orchestration)**：利用 **LangGraph** 实现有状态的多节点 AI 推理与决策闭环。
+- **动态配置**：通过 **Nacos** 实现 LLM 参数、数据库连接及业务配置的热更新。
+- **MCP 生态集成**：
+    - **Stdio 模式**：调用本地工具（如 Brave Search）。
+    - **SSE 模式**：通过 Server-Sent Events 调用 Java 后端或远程服务。
+- **微服务接入**：完美集成 Nacos 服务发现，实现跨语言服务互访。
+- **流式响应**：支持 SSE 实时 Token 流输出，提供极致的用户对话体验。
+
 ---
 
+## 🚀 快速开始 (使用 `uv`)
 
-# MS Py Agent
+推荐使用高性能 Python 包管理器 [uv](https://github.com/astral-sh/uv)。
 
-A modular Python-based AI agent service built with FastAPI, integrating **Nacos** for service discovery and **Model Context Protocol (MCP)** for extensible tool usage. This agent uses **LangGraph** to orchestrate agentic workflows.
+### 1. 安装依赖
 
-## Features
-
-- **FastAPI Framework**: High-performance, easy-to-learn web framework.
-- **Service Discovery**: Seamless integration with Nacos for service registration and discovery.
-- **LangGraph**: Stateful, multi-actor applications with cycles (agentic orchestration).
-- **Model Context Protocol (MCP)**:
-    - **Stdio Client**: Connects to local CLI tools (e.g., Brave Search via Node.js).
-    - **SSE Client**: Connects to remote services (e.g., Java backend) via Server-Sent Events.
-
-## Prerequisites
-
-- **Python 3.10+**
-- **Node.js**: Required for running the Brave Search MCP server (`npx`).
-- **Nacos Server 2.x**: A running Nacos instance is required for the application to start.
-
-## Installation
-
-1. Clone the repository:
-   ```bash
-   git clone <repository_url>
-   cd ms-py-agent
-   ```
-
-2. Create and activate a virtual environment:
-   ```bash
-   python -m venv .venv
-   # Windows
-   .venv\Scripts\activate
-   # Linux/Mac
-   source .venv/bin/activate
-   ```
-
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-## Configuration
-
-The application is configured via environment variables. You can create a `.env` file in the root directory (see `.env.example`).
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `APP_ENV` | `development` | Application environment (`development` or `production`). |
-| `HOST` | `0.0.0.0` | Host to bind the server to. |
-| `PORT` | `8181` | Port to listen on. |
-| `NACOS_SERVER_ADDR` | `` | Address of the Nacos server. |
-| `NACOS_NAMESPACE` | `public` | Nacos namespace ID. |
-| `NACOS_USERNAME` | `` | Nacos username. |
-| `NACOS_PASSWORD` | `` | Nacos password. |
-| `SERVICE_NAME` | `ms-py-agent` | Name of this service in Nacos. |
-| `MCP_BRAVE_PATH` | (Auto-detected) | Optional override for `npx` path. |
-| `NACOS_GATEWAY_SERVICE_NAME` | `gateway` | Name of the Java/Gateway service to discover. |
-
-## Usage
-
-### Running the Application
-
-Using `python`:
 ```bash
-python main.py
+# 克隆仓库
+git clone <repository_url>
+cd python-agent
+
+# 安装依赖并创建虚拟环境 (uv 会自动处理)
+uv sync
 ```
 
-Using `uvicorn` (with hot reload):
+### 2. 配置说明
+
+本项目采用 **Nacos 集中化配置**，环境引导通过环境变量完成。
+
+#### A. 环境引导 (Bootstrap)
+在当前目录设置环境变量或创建 `.env` 文件（生产环境建议通过环境变量注入）：
+
 ```bash
-uvicorn main:app --reload --port 8181
+# Nacos 基础连接配置
+NACOS_SERVER_ADDR=127.0.0.1:8848
+NACOS_NAMESPACE=your-namespace-id
+NACOS_USERNAME=nacos
+NACOS_PASSWORD=your-password
+
+# 应用基础信息
+APP_ENV=development      # 影响加载的 Nacos Config Data ID
+SERVICE_NAME=python-agent
 ```
 
-> **Note**: The application will fail to start if it cannot connect to the configured Nacos server.
+#### B. Nacos 配置详情
+将配置模板上传至您的 Nacos 服务器：
+- **配置文件路径**：如果没有nacos 则新建本地路径：`nacos-data/snapshot/nacos-config-example.yaml`
+- **Data ID**：`python-agent-development.yaml` (根据 `APP_ENV` 调整)
+- **Group**：`DEFAULT_GROUP`
 
-### API Endpoints
+> [!IMPORTANT]
+> 该 YAML 文件包含数据库凭据、LLM API Key 等敏感信息，请确保 Nacos 权限安全。
 
-- **Health Check**: `GET /health`
-- **Chat**: `POST /chat`
-    ```json
-    {
-      "message": "Search for the latest news on AI."
-    }
-    ```
+### 3. 运行服务
 
-## Project Structure
+```bash
+# 启动 FastAPI 服务（开发模式支持热重载）
+uv run main.py
+```
 
-The project follows a modular package structure:
+服务默认运行在：`http://127.0.0.1:8181`
+
+---
+
+## 📖 接口与文档
+
+- **交互式文档 (Swagger UI)**：[http://127.0.0.1:8181/docs](http://127.0.0.1:8181/docs)
+- **健康检查**：`GET /health`
+- **对话接口**：`POST /chat`
+
+```json
+{
+  "message": "你好，能帮我分析一下最新的 AI 趋势吗？",
+  "session_id": "可选-会话ID",
+  "topic_id": "可选-知识库ID"
+}
+```
+
+---
+
+## 🏗️ 架构与工作流
+
+“大脑”采用了严格的异步流式事件驱动架构：
+
+```mermaid
+sequenceDiagram
+    participant Client as 客户端 (前端/网关)
+    participant API as FastAPI (大脑)
+    participant Nacos as Nacos 配置中心
+    participant Graph as LangGraph 状态机
+    participant MCP as Java 业务端 (via MCP)
+    participant DB as PostgreSQL (存储)
+
+    Client->>API: POST /chat (请求)
+    API->>Nacos: 获取最新动态配置 (LLM/DB/Biz)
+    API->>DB: 载入会话状态 (Checkpoint)
+    API->>Graph: 运行智能体节点 (思索/工具调用)
+    Graph->>MCP: 执行业务逻辑或查询
+    Graph->>DB: 持久化更新状态
+    API-->>Client: 实时流式返回 Token (SSE)
+```
+
+### 核心设计点
+
+1. **连接隔离**：手动管理 `psycopg` 连接池，确保 LangGraph 状态持久化的稳定性。
+2. **握手心跳**：SSE 立即返回 `: connected`，避免 Nginx 等代理服务处理慢 AI 时发生超时。
+3. **动态 RAG**：根据 `topic_id` 实时检索知识库并动态拼装上下文。
+4. **后置持久化**：AI 输出结束后，异步完成业务对话历史的存储，不阻塞用户感知。
+
+---
+
+## 📁 项目结构
 
 ```text
 ms-py-agent/
 ├── app/
-│   ├── core/           # Core configuration & infrastructure (Nacos, Config)
-│   ├── services/       # External service clients (MCP)
-│   ├── agent/          # LangGraph logic (State, Graph, Nodes)
-│   └── setup.py        # Startup setup scripts
-├── main.py             # Entry point
+│   ├── api/            # API 路由
+│   ├── core/           # 核心基础设施 (Nacos, DB, 生命周期)
+│   ├── services/       # MCP 客户端与服务集成
+│   └── agent/          # LangGraph 核心逻辑 (节点、边、状态定义)
+├── configs/            # 配置模板 (Nacos YAML 样例)
+├── scripts/            # 运维及数据预处理脚本
+├── main.py             # 应用入口
+├── pyproject.toml      # UV 项目定义
 └── ...
 ```
 
+---
+
+## 🛡️ 开发规范
+
+- **异步优先**：必须使用 `async def` 和 `await`。网络请求统一使用 `httpx`。
+- **动态发现**：禁止硬编码服务地址，必须通过 Nacos 动态发现 Java 等下游服务。
+- **状态一致性**：所有 AI 决策路径必须在 LangGraph 中有清晰的状态流转记录。
 
 
-# Chat Endpoint 详细执行流程分析
-
-下面是 `/rest/dark/v1/agent/chat` 接口在一次完整请求中的时序图。
-
-# Chat Endpoint 详细执行流程分析
+### Chat Endpoint 详细执行流程分析
 
 下面是 `/rest/dark/v1/agent/chat` 接口在一次完整请求中的时序图。
 为什么流程看起来很复杂？
@@ -219,4 +251,3 @@ sequenceDiagram
     DB_Biz-->>API: 业务记录保存成功
     end
 ```
-
