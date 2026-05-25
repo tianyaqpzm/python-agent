@@ -127,10 +127,17 @@ sequenceDiagram
 ```text
 ms-py-agent/
 ├── app/
-│   ├── api/            # API 路由
-│   ├── core/           # 核心基础设施 (Nacos, DB, 生命周期)
-│   ├── services/       # MCP 客户端与服务集成
-│   └── agent/          # LangGraph 核心逻辑 (节点、边、状态定义)
+│   ├── api/            # API 路由与 HTTP 入口
+│   ├── core/           # 核心基础设施 (Nacos, DB, 线程生命周期管理)
+│   ├── domain/         # 领域层：纯 Pydantic/dataclass 领域实体定义 (无 ORM 侵入)
+│   ├── infrastructure/ # 基础设施层：外部客户端及数据库/向量库的具体实现
+│   ├── services/       # 服务整合层：包含 MCP 客户端、多语言 i18n 引擎等
+│   └── agent/          # LangGraph 核心智能图编排
+│       ├── router/     # 全局智能路由图与意图分类决策节点
+│       ├── subgraphs/  # 垂直领域子图 (RAG、Coding、General、A2A)
+│       ├── factory.py  # 智能体编译及构建工厂类
+│       ├── graph.py    # 编译完成的生产级图流
+│       └── state.py    # 包含子图的全局隔离状态定义
 ├── configs/            # 配置模板 (Nacos YAML 样例)
 ├── scripts/            # 运维及数据预处理脚本
 ├── main.py             # 应用入口
