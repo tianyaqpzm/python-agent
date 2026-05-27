@@ -10,8 +10,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # 防止 Python 缓冲 stdout 和 stderr
 ENV PYTHONUNBUFFERED=1
 ENV APP_PORT=8181
-# 允许 uv 在容器的系统 Python 环境中安装包（无需虚拟环境）
-ENV UV_SYSTEM_PYTHON=1
+# 将 uv 创建的虚拟环境路径加入到 PATH，以便全局调用 uvicorn 等可执行文件
+ENV PATH="/app/.venv/bin:$PATH"
 
 # 安装系统依赖及 Node.js (使用最新 LTS 22.x 版本，支持 npx MCP 插件)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -37,10 +37,10 @@ COPY . .
 # 暴露端口
 EXPOSE $APP_PORT
 
-# 创建非 root 用户运行
+# 创建非 root 用户运行，并授权整个工作目录以避免任何运行时权限问题（例如 Nacos 写入本地缓存）
 RUN useradd -m myuser \
     && mkdir -p /app/logs \
-    && chown -R myuser:myuser /app/logs
+    && chown -R myuser:myuser /app
 USER myuser
 
 # 启动命令
