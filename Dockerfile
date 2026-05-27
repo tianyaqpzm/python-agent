@@ -26,8 +26,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
 
 # 安装 Python 依赖
-# 使用 --system 安装到系统环境，因为是在容器内
-RUN uv pip install --system --no-cache-dir -r pyproject.toml
+# 使用 --system 安装到系统环境，因为是在容器内，并且冻结依赖版本且不安装开发依赖
+RUN uv sync --system --frozen --no-dev --no-editable
 
 # 复制应用代码
 COPY . .
