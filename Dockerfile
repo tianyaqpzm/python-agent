@@ -22,8 +22,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 安装 uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# 复制依赖文件 (使用 uv 相关文件)
-COPY pyproject.toml uv.lock ./
+# 复制依赖文件 (使用 uv 相关文件，包含 README.md 以供 uv sync 读取项目元数据)
+COPY pyproject.toml uv.lock README.md ./
 
 # 安装 Python 依赖
 # 使用 --system 安装到系统环境，因为是在容器内，并且冻结依赖版本、排除开发依赖、仅安装依赖而不安装项目本身
