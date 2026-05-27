@@ -10,6 +10,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # 防止 Python 缓冲 stdout 和 stderr
 ENV PYTHONUNBUFFERED=1
 ENV APP_PORT=8181
+# 允许 uv 在容器的系统 Python 环境中安装包（无需虚拟环境）
+ENV UV_SYSTEM_PYTHON=1
 
 # 安装系统依赖及 Node.js (使用最新 LTS 22.x 版本，支持 npx MCP 插件)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -26,8 +28,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY pyproject.toml uv.lock README.md ./
 
 # 安装 Python 依赖
-# 使用 --system 安装到系统环境，因为是在容器内，并且冻结依赖版本、排除开发依赖、仅安装依赖而不安装项目本身
-RUN uv sync --system --frozen --no-dev --no-install-project
+# 冻结依赖版本、排除开发依赖、仅安装依赖而不安装项目本身
+RUN uv sync --frozen --no-dev --no-install-project
 
 # 复制应用代码
 COPY . .
