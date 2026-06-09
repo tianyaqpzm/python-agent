@@ -62,8 +62,12 @@ async def general_agent_node(state: GlobalState, config: RunnableConfig) -> Dict
     # e. 调用 LLM（带速率限制）
     model_name = dynamic_config.llm_model
     limiter = await LimiterRegistry.get_limiter(f"chat:{model_name}", dynamic_config.llm_rpm or 10)
+    
+    from app.agent.callbacks.token_usage import TokenUsageCallbackHandler
+    cb = TokenUsageCallbackHandler("GENERAL")
+    
     async with limiter:
-        response = await llm.ainvoke(messages)
+        response = await llm.ainvoke(messages, config={"callbacks": [cb]})
 
     return {"messages": [response]}
 

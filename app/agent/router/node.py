@@ -145,11 +145,15 @@ async def router_node(state: GlobalState, config: RunnableConfig) -> Dict[str, A
         system_prompt = await _get_router_prompt(auth_header=auth_header)
 
         llm = llm_service.get_default_llm(temperature=0.1, streaming=False)
+        from app.agent.callbacks.token_usage import TokenUsageCallbackHandler
+        cb = TokenUsageCallbackHandler("ROUTER")
+        
         response = await llm.ainvoke(
             [
                 SystemMessage(content=system_prompt),
                 HumanMessage(content=user_text),
-            ]
+            ],
+            config={"callbacks": [cb]}
         )
         raw = response.content.strip().lower()
         intent = raw if raw in ("rag", "coding", "general", "remote_agent") else "general"
