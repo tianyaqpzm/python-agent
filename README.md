@@ -24,7 +24,6 @@
 ## 🚀 快速开始 (使用 `uv`)
 
 推荐使用高性能 Python 包管理器 [uv](https://github.com/astral-sh/uv)。
-
 ### 1. 安装依赖
 
 ```bash

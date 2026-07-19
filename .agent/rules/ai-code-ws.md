@@ -1,5 +1,6 @@
 ---
-trigger: always_on
+trigger: on_demand
+description: ms-py-agent 完整历史规范（已拆分）。深度参考见 skills/agent-reference/SKILL.md
 ---
 
 # Role (角色)
@@ -80,3 +81,8 @@ trigger: always_on
 - **严禁硬编码 `tools=[]`**: 工具列表在 lifespan 启动时由 `mcp_tool_registry.setup()` 动态加载，子图通过 `mcp_tool_registry.get_langchain_tools()` 获取。
 - **生命周期绑定**: `setup()` 在 `lifespan` startup 中调用，`teardown()` 在 shutdown 中调用，确保连接资源正确释放。
 - **兼容层**: `app/services/mcp_client.py` 中的旧 `mcp_clients` 注册表保留以兼容 `chat_graph.py`，新代码禁止直接使用。
+
+# Local Development & Restart Guide (本地开发与重启指南)
+- **端口配置**: 默认运行在 `8182` 端口。
+- **VS Code 启动配置**: 位于 `.vscode/launch.json` 中。
+- **AI 自动重启要求**: AI 在需要重启服务时，必须读取该目录下的 `launch.json` 提取所需环境变量和启动命令（如 Uvicorn）进行重启，确保环境和参数一致。

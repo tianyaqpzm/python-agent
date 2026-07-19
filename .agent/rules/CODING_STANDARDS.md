@@ -1,5 +1,6 @@
 ---
-trigger: always_on
+trigger: on_demand
+description: ms-py-agent Python 规范（已拆分）。深度参考见 skills/agent-reference/SKILL.md
 ---
 
 # Python 架构与代码规范指南

@@ -1,10 +1,7 @@
 from langgraph.graph import StateGraph, END
 from app.agent.state import AgentState
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from app.services.mcp_client import get_all_tools, mcp_clients
-import json
-from app.core.config import settings
-import httpx
+from langchain_core.messages import AIMessage
+from app.services.mcp_client import get_all_tools
 
 TOPIC_PERSONAS = {
     'topic_recipe_001': "你是一位拥有20年经验的中餐大厨，精通各大菜系。请用专业、亲切且热情的语气回答用户的菜谱相关问题，并提供实用的烹饪技巧。"
@@ -65,27 +62,28 @@ async def generate(state: AgentState):
     return {"messages": [AIMessage(content=response_content)]}
 
 def route_step(state: AgentState):
-    step = state.get('current_step')
-    if step == "tool_call":
-        return "tool_call"
-    return "generate"
+    return state.get("current_step", "generate")
 
 # Build Graph
 builder = StateGraph(AgentState)
 
-builder.add_node("retrieve", retrieve)
-builder.add_node("think", think)
-builder.add_node("tool_call", tool_call_node)
-builder.add_node("generate", generate)
+# Add nodes cleanly in a loop
+for name, node in {
+    "retrieve": retrieve,
+    "think": think,
+    "tool_call": tool_call_node,
+    "generate": generate,
+}.items():
+    builder.add_node(name, node)
 
 builder.set_entry_point("retrieve")
-
 builder.add_edge("retrieve", "think")
-builder.add_conditional_edges("think", route_step, {
-    "tool_call": "tool_call",
-    "generate": "generate"
-})
-builder.add_edge("tool_call", "generate") # Loop back or go to generate? User said "Tool Call -> Generate"
+builder.add_conditional_edges(
+    "think",
+    route_step,
+    {"tool_call": "tool_call", "generate": "generate"}
+)
+builder.add_edge("tool_call", "generate")
 builder.add_edge("generate", END)
 
 graph = builder.compile()
